@@ -478,3 +478,69 @@ async def global_error_handler(request: Request, exc: Exception):
             "message": "internal server error"
         }
     )
+    from bs4 import BeautifulSoup
+import httpx
+
+@app.get("/full-scorecard/{match_id}")
+async def get_full_scorecard(match_id: str):
+    url = f"https://www.cricbuzz.com/live-cricket-scorecard/{match_id}/match"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+        
+    if response.status_code != 200:
+        return {"error": "Could not fetch data from Cricbuzz"}
+        
+    soup = BeautifulSoup(response.text, 'lxml')
+    scorecard = []
+    
+    # Find all innings blocks (innings_1, innings_2, etc.)
+    innings_blocks = soup.find_all('div', id=lambda x: x and x.startswith('innings_'))
+    
+    for block in innings_blocks:
+        inning_data = {"batting": [], "bowling": []}
+        
+        # Find all tables in this inning
+        sections = block.find_all('div', class_='cb-col cb-col-100 cb-ltst-wgt-hdr')
+        
+        # Extract Batting (usually the first section)
+        if len(sections) > 0:
+            batters = sections[0].find_all('div', class_='cb-scrd-itms')
+            for batter in batters:
+                cols = batter.find_all('div')
+                if len(cols) >= 7 and "Extras" not in batter.text and "Total" not in batter.text:
+                    name_tag = cols[0].find('a')
+                    if name_tag:
+                        inning_data["batting"].append({
+                            "name": name_tag.text.strip(),
+                            "dismissal": cols[1].text.strip(),
+                            "runs": cols[2].text.strip(),
+                            "balls": cols[3].text.strip(),
+                            "fours": cols[4].text.strip(),
+                            "sixes": cols[5].text.strip()
+                        })
+                        
+        # Extract Bowling (usually the second section)
+        if len(sections) > 1:
+            bowlers = sections[1].find_all('div', class_='cb-scrd-itms')
+            for bowler in bowlers:
+                cols = bowler.find_all('div')
+                if len(cols) >= 8:
+                    name_tag = cols[0].find('a')
+                    if name_tag:
+                        inning_data["bowling"].append({
+                            "name": name_tag.text.strip(),
+                            "overs": cols[1].text.strip(),
+                            "maidens": cols[2].text.strip(),
+                            "runs": cols[3].text.strip(),
+                            "wickets": cols[4].text.strip(),
+                            "economy": cols[5].text.strip()
+                        })
+                        
+        if inning_data["batting"] or inning_data["bowling"]:
+            scorecard.append(inning_data)
+            
+    return {"status": "success", "match_id": match_id, "scorecard": scorecard}
