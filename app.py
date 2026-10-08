@@ -481,7 +481,8 @@ async def global_error_handler(request: Request, exc: Exception):
     import requests
 from bs4 import BeautifulSoup
 
-def get_full_scorecard(match_id):
+@app.get("/full-scorecard/{match_id}")
+def get_full_scorecard(match_id: str):
     url = f"https://www.cricbuzz.com/live-cricket-scorecard/{match_id}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     resp = requests.get(url, headers=headers)
