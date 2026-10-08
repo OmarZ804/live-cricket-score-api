@@ -5,6 +5,11 @@ import html
 import time
 from typing import List, Optional
 
+import re
+import html
+import urllib.request
+from fastapi import HTTPException
+
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, Query, Request
@@ -547,3 +552,65 @@ def get_full_scorecard(match_id: str):
         innings_list.append({"batting": batting_data, "bowling": bowling_data})
 
     return {"status": "success", "match_id": match_id, "scorecard": innings_list}
+
+
+@app.get("/series/{series_id}")
+def get_series_matches(series_id: str):
+    """
+    Scrapes all matches and details for a given Cricbuzz Series ID.
+    Example: GET /series/13257
+    """
+    url = f"https://www.cricbuzz.com/cricket-series/{series_id}/matches"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            page_html = resp.read().decode("utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch from Cricbuzz: {str(e)}")
+
+    title_match = re.search(r"<title>(.*?)</title>", page_html)
+    raw_title = title_match.group(1) if title_match else f"Series {series_id}"
+    series_name = html.unescape(raw_title.split(" schedule")[0].split(" | Cricbuzz")[0].strip())
+
+    main_idx = page_html.find("<main")
+    main_content = page_html[main_idx:] if main_idx != -1 else page_html
+
+    matches = []
+    seen = set()
+    links = re.findall(
+        r'<a[^>]*href="/live-cricket-scores/(\d+)/([^"]+)"[^>]*>(.*?)</a>',
+        main_content,
+        re.DOTALL,
+    )
+
+    for mid, slug, link_text in links:
+        if mid in seen:
+            continue
+        clean_text = re.sub(r"<[^>]*>", " ", link_text)
+        clean_text = html.unescape(re.sub(r"\s+", " ", clean_text)).strip()
+        if not clean_text or clean_text.lower().startswith("live"):
+            continue
+
+        seen.add(mid)
+        matches.append({
+            "match_id": mid,
+            "title": clean_text,
+            "slug": slug,
+        })
+
+    return {
+        "status": "success",
+        "series_id": series_id,
+        "series_name": series_name,
+        "total_matches": len(matches),
+        "matches": matches,
+    }
