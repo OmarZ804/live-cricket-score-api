@@ -8,7 +8,9 @@ from typing import List, Optional
 import re
 import html
 import urllib.request
-from fastapi import HTTPException
+import requests
+from bs4 import BeautifulSoup
+from fastapi import FastAPI, HTTPException
 
 import httpx
 from bs4 import BeautifulSoup
@@ -20,6 +22,14 @@ from fastapi.responses import (
     PlainTextResponse,
     HTMLResponse,
 )
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
 from pydantic import BaseModel, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -614,3 +624,114 @@ def get_series_matches(series_id: str):
         "total_matches": len(matches),
         "matches": matches,
     }
+
+
+def extract_match_squads(match_id: str):
+    url = f"https://www.cricbuzz.com/cricket-match-squads/{match_id}"
+    resp = requests.get(url, headers=HEADERS, timeout=15)
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail=f"Cricbuzz returned status {resp.status_code}"
+        )
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # 1. Extract team names from the top squad tab bar
+    tab_bar = soup.find("div", class_=lambda c: c and "bg-cbInactTab" in c)
+    team_names = []
+    if tab_bar:
+        team_names = [
+            d.get_text(strip=True)
+            for d in tab_bar.find_all("div", class_=lambda c: c and "wb:px-2" in c)
+        ]
+    if len(team_names) < 2:
+        team_names = ["Team 1", "Team 2"]
+
+    # 2. Locate the squad list container
+    squad_div = None
+    if tab_bar and tab_bar.parent:
+        pb5_divs = tab_bar.parent.find_all("div", class_=lambda c: c and "pb-5" in c)
+        if pb5_divs:
+            squad_div = pb5_divs[0]
+    if not squad_div:
+        squad_div = soup
+
+    # 3. Two columns inside squad container: Col 0 = Team 1, Col 1 = Team 2
+    two_col = squad_div.find("div", class_=lambda c: c and "w-full" in c and "flex" in c)
+    cols = []
+    if two_col:
+        cols = [
+            c for c in two_col.children
+            if hasattr(c, "name") and c.name and "w-1/2" in c.get("class", [])
+        ]
+
+    teams_data = {}
+
+    if len(cols) >= 2:
+        for idx, col in enumerate(cols[:2]):
+            t_name = team_names[idx] if idx < len(team_names) else f"Team {idx+1}"
+            players = []
+            for a in col.find_all("a", href=lambda h: h and "/profiles/" in h):
+                name_span = a.find("span")
+                name = name_span.get_text(strip=True) if name_span else a.get_text(strip=True)
+                role_el = a.find("div", class_=lambda c: c and "text-xs" in c)
+                role = role_el.get_text(strip=True) if role_el else "Unknown"
+                full_text = a.get_text(separator=" ", strip=True)
+
+                if "coach" in role.lower():
+                    continue
+
+                players.append({
+                    "name": name,
+                    "role": role,
+                    "is_captain": "(C)" in full_text,
+                    "is_wk": "(WK)" in full_text or "wk" in role.lower(),
+                })
+            teams_data[t_name] = players
+    else:
+        all_players = []
+        for a in squad_div.find_all("a", href=lambda h: h and "/profiles/" in h):
+            name_span = a.find("span")
+            name = name_span.get_text(strip=True) if name_span else a.get_text(strip=True)
+            role_el = a.find("div", class_=lambda c: c and "text-xs" in c)
+            role = role_el.get_text(strip=True) if role_el else "Unknown"
+            if "coach" in role.lower():
+                continue
+            all_players.append({
+                "name": name,
+                "role": role,
+                "is_captain": "(C)" in a.get_text(),
+                "is_wk": "(WK)" in a.get_text() or "wk" in role.lower(),
+            })
+        teams_data["Squad"] = all_players
+
+    return {
+        "status": "success",
+        "match_id": match_id,
+        "teams": teams_data,
+    }
+
+
+@app.get("/squads/{match_id}")
+def get_match_squads(match_id: str):
+    """Fetch squads and player roles for a specific match ID."""
+    return extract_match_squads(match_id)
+
+
+@app.get("/series/{series_id}/squads")
+def get_series_squads(series_id: str):
+    """Fetch squads for a series by looking up its first match."""
+    series_url = f"https://www.cricbuzz.com/cricket-series/{series_id}/matches"
+    resp = requests.get(series_url, headers=HEADERS, timeout=15)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Could not load series")
+
+    match_ids = re.findall(r"/live-cricket-scores/(\d+)/", resp.text)
+    if not match_ids:
+        raise HTTPException(status_code=404, detail="No matches found in this series")
+
+    first_match_id = match_ids[0]
+    result = extract_match_squads(first_match_id)
+    result["series_id"] = series_id
+    return result
