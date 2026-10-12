@@ -27,7 +27,8 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
+    ),
+    "Accept": "application/json, text/html, */*"
 }
 
 from pydantic import BaseModel, field_validator
@@ -722,71 +723,70 @@ def get_match_squads(match_id: str):
 @app.get("/series/{series_id}/squads")
 def get_series_squads(series_id: str):
     """
-    Scrapes squads for ALL participating teams in a given Cricbuzz Series ID
+    Scrapes squads for ALL participating teams in a Cricbuzz Series ID
     (Supports bilateral tours, Tri-Series, and multi-team tournaments).
-    Example: GET /series/13047/squads
     """
-    url = f"https://www.cricbuzz.com/cricket-series/{series_id}/squads"
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        # 1. Fetch series matches page to locate the squads link
+        matches_url = f"https://www.cricbuzz.com/cricket-series/{series_id}/matches"
+        resp = requests.get(matches_url, headers=HEADERS, timeout=15)
         if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail="Failed to fetch series squads from Cricbuzz")
+            return {"status": "error", "message": f"Series {series_id} not found"}
 
         soup = BeautifulSoup(resp.text, "html.parser")
-        teams_data = {}
+        squad_link = None
+        for a in soup.find_all("a", href=True):
+            if f"/cricket-series/{series_id}/" in a["href"] and "squad" in a["href"]:
+                squad_link = a["href"]
+                break
 
-        # Find team containers or sections on the series squads page
-        # Cricbuzz typically groups squads by team headers or panels
-        for container in soup.find_all(["div", "section"], class_=lambda c: c and ("cb-col" in str(c) or "panel" in str(c))):
-            player_links = container.find_all("a", href=lambda h: h and "/profiles/" in h)
-            if player_links and len(player_links) >= 3:
-                # Attempt to find the team name from preceding headings or container titles
-                team_name = "Team"
-                prev_h = container.find_previous(["h2", "h3", "div"], class_=lambda c: c and ("heading" in str(c).lower() or "title" in str(c).lower()))
-                if prev_h:
-                    team_name = prev_h.get_text(strip=True).replace("Squad", "").replace("Series", "").strip()
-                
-                if not team_name or len(team_name) > 30 or team_name in teams_data:
-                    team_name = f"Team {len(teams_data) + 1}"
+        if not squad_link:
+            squad_link = f"/cricket-series/{series_id}/squads"
 
+        full_squad_url = (
+            f"https://www.cricbuzz.com{squad_link}"
+            if squad_link.startswith("/")
+            else squad_link
+        )
+        squad_page = requests.get(full_squad_url, headers=HEADERS, timeout=15)
+
+        # 2. Extract squad IDs from Cricbuzz series page
+        matches = re.findall(
+            r"squadId[\"\\]*:(\d+).*?squadType[\"\\]*:[\"\\]*([^\"\\\\]+)",
+            squad_page.text
+        )
+
+        teams_result = {}
+        for sq_id, sq_type in matches:
+            team_name = sq_type.replace(" Squad", "").strip()
+            api_url = f"https://www.cricbuzz.com/api/cricket-series/series-squads/{series_id}/{sq_id}"
+            r = requests.get(api_url, headers=HEADERS, timeout=10)
+            if r.status_code == 200:
+                p_data = r.json()
                 players = []
-                seen_players = set()
-                for a in player_links:
-                    name_span = a.find("span")
-                    name = name_span.get_text(strip=True) if name_span else a.get_text(strip=True)
-                    if not name or name in seen_players:
+                for p in p_data.get("player", []):
+                    if p.get("isHeader") or not p.get("name"):
                         continue
-                    seen_players.add(name)
-
-                    role_el = a.find("div", class_=lambda c: c and "text-xs" in c)
-                    role = role_el.get_text(strip=True) if role_el else "Unknown"
-                    full_text = a.get_text(separator=" ", strip=True)
-
+                    role = p.get("role", "Unknown")
                     if "coach" in role.lower():
                         continue
-
                     players.append({
-                        "name": name,
+                        "name": p.get("name"),
                         "role": role,
-                        "is_captain": "(C)" in full_text,
-                        "is_wk": "(WK)" in full_text or "wk" in role.lower(),
+                        "is_captain": bool(p.get("isCaptain")),
+                        "is_wk": bool(p.get("isKeeper") or "keeper" in role.lower() or "wk" in role.lower())
                     })
-                
-                if players:
-                    teams_data[team_name] = players
-
-        # Fallback if container parsing didn't catch structured cards
-        if not teams_data:
-            raise HTTPException(status_code=404, detail="No team squads found for this series ID")
+                teams_result[team_name] = players
 
         return {
             "status": "success",
             "series_id": series_id,
-            "total_teams": len(teams_data),
-            "teams": teams_data,
+            "total_teams": len(teams_result),
+            "teams": teams_result
         }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error parsing series squads: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
     match_ids = re.findall(r"/live-cricket-scores/(\d+)/", resp.text)
     if not match_ids:
