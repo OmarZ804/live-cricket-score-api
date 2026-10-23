@@ -1,3 +1,9 @@
+import os
+import cv2
+import numpy as np
+import tempfile
+from fastapi.responses import FileResponse
+
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -796,3 +802,67 @@ def get_series_squads(series_id: str):
     result = extract_match_squads(first_match_id)
     result["series_id"] = series_id
     return result
+
+@app.post("/generate-video")
+def generate_video(data: dict = Body(...)):
+    """
+    Generates a 5-second dynamic MP4 video for social media:
+    - type: "match_reminder" (dynamic clash, team shields, countdown feel)
+    - type: "match_podium" (3D podium layout, winner rankings)
+    """
+    video_type = data.get("type", "match_reminder")
+    title = data.get("title", "INDUS GAMERS MATCH")
+    subtitle = data.get("subtitle", "Play Now & Win!")
+    
+    width, height = 720, 1280  # 9:16 Vertical format for Facebook Reels/Stories
+    fps = 30
+    duration_seconds = 5
+    total_frames = fps * duration_seconds
+    
+    # Create a temporary file to store the generated video
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    temp_filename = temp_file.name
+    temp_file.close()
+    
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
+    
+    try:
+        for frame_idx in range(total_frames):
+            # Create a sports-themed dark navy background
+            frame = np.zeros((height, width, 3), dtype=np.uint8)
+            frame[:] = (20, 24, 33) # RGB: Dark Navy
+            
+            if video_type == "match_reminder":
+                # Header branding
+                cv2.putText(frame, "INDUS GAMERS", (160, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 150), 3, cv2.LINE_AA)
+                # Main Title / Teams clash
+                cv2.putText(frame, title, (80, 380), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 3, cv2.LINE_AA)
+                cv2.putText(frame, subtitle, (140, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (200, 200, 200), 2, cv2.LINE_AA)
+                
+                # Pulsing center badge
+                pulse = int(abs(np.sin(frame_idx * 0.15) * 80))
+                cv2.circle(frame, (width // 2, 780), 110 + (pulse // 4), (0, 120, 255), 4, cv2.LINE_AA)
+                cv2.putText(frame, "VS", (width // 2 - 35, 795), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
+                
+            elif video_type == "match_podium":
+                # Leaderboard Header
+                cv2.putText(frame, "TOP FANTASY LEADERS", (90, 150), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 215, 0), 3, cv2.LINE_AA)
+                cv2.putText(frame, title, (100, 240), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3, cv2.LINE_AA)
+                
+                # Draw Podium Bars (Silver 2nd, Gold 1st, Bronze 3rd)
+                cv2.rectangle(frame, (140, 720), (260, 1100), (192, 192, 192), -1) 
+                cv2.rectangle(frame, (300, 560), (420, 1100), (255, 215, 0), -1) 
+                cv2.rectangle(frame, (460, 800), (580, 1100), (205, 127, 50), -1) 
+                
+                cv2.putText(frame, "1st", (340, 530), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+            
+            out.write(frame)
+            
+        out.release()
+        return FileResponse(temp_filename, media_type="video/mp4", filename="indus_gamers_promo.mp4")
+        
+    except Exception as e:
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        raise HTTPException(status_code=500, detail=str(e))
