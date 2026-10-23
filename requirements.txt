@@ -1,8 +1,6 @@
 fastapi
 uvicorn
-beautifulsoup4
 requests
-lxml
-httpx
+beautifulsoup4
 opencv-python-headless==4.8.1.78
 numpy>=1.22.0
