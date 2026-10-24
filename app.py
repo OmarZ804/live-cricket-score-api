@@ -1,8 +1,7 @@
-import os
+import cv2
+import numpy as np
 import tempfile
-from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import FileResponse
-from moviepy.editor import ColorClip, TextClip, CompositeVideoClip
 
 import requests
 from bs4 import BeautifulSoup
@@ -815,116 +814,79 @@ def health_check():
 @app.post("/generate-video")
 def generate_video(data: dict = Body(...)):
     """
-    Dynamically generates 5-second professional sports videos on Render.
-    Supports two types:
-    1. type: "match_reminder" -> Team clash, submission deadline, countdown.
-    2. type: "match_podium"   -> Winners podium, leaderboards, medals.
+    Generates professional 5-second MP4 sports videos using OpenCV.
+    Supports: "match_reminder" and "match_podium"
     """
     try:
         video_type = data.get("type", "match_reminder")
         
-        # 1. Professional Dark Sports Background (Generated via code)
-        background_clip = ColorClip(size=(720, 1280), color=(15, 23, 42), duration=5) # Deep navy slate
-        layers = [background_clip]
-
-        # Top Permanent Branding Header
-        brand_clip = TextClip(
-            "INDUS GAMERS",
-            fontsize=40,
-            color="#FACC15", # Gold/Yellow
-            font="Arial",
-            method="caption"
-        ).set_position(("center", 80)).set_duration(5)
-        layers.append(brand_clip)
-
-        if video_type == "match_reminder":
-            # --- FORMAT 1: MATCH REMINDER / TEAM SUBMISSION CLOSURE ---
-            team1 = data.get("team1_code", "PAK").upper()
-            team2 = data.get("team2_code", "SL").upper()
-            title_text = data.get("title", f"{team1} vs {team2}")
-            subtitle_text = data.get("subtitle", "Lineups Lock in 2 Hours!")
-            cta_text = data.get("cta_text", "Build Your Fantasy XI Now")
-
-            # Team 1 Badge
-            t1_badge = TextClip(
-                team1, fontsize=48, color="white", bg_color="#1D4ED8", font="Arial", size=(200, 180), method="caption"
-            ).set_position((110, 360)).set_duration(5)
-            layers.append(t1_badge)
-
-            # VS Indicator
-            vs_clip = TextClip(
-                "VS", fontsize=32, color="#94A3B8", font="Arial", method="caption"
-            ).set_position(("center", 430)).set_duration(5)
-            layers.append(vs_clip)
-
-            # Team 2 Badge
-            t2_badge = TextClip(
-                team2, fontsize=48, color="white", bg_color="#DC2626", font="Arial", size=(200, 180), method="caption"
-            ).set_position((410, 360)).set_duration(5)
-            layers.append(t2_badge)
-
-            # Match Title
-            title_clip = TextClip(
-                title_text.upper(), fontsize=36, color="white", font="Arial", size=(640, None), method="caption"
-            ).set_position(("center", 640)).set_duration(5)
-            layers.append(title_clip)
-
-            # Subtitle / Deadline Warning
-            sub_clip = TextClip(
-                subtitle_text, fontsize=28, color="#34D399", font="Arial", size=(640, None), method="caption"
-            ).set_position(("center", 780)).set_duration(5)
-            layers.append(sub_clip)
-
-            # Action Button
-            cta_clip = TextClip(
-                cta_text, fontsize=30, color="white", bg_color="#059669", size=(580, 75), method="caption"
-            ).set_position(("center", 940)).set_duration(5)
-            layers.append(cta_clip)
-
-        elif video_type == "match_podium":
-            # --- FORMAT 2: PODIUM STANDINGS & WINNERS ---
-            event_title = data.get("title", "TRI-SERIES FINAL - WINNERS")
-            winner_name = data.get("winner_name", "User_Ali92")
-            winner_prize = data.get("winner_prize", "$500 USDT / Prize Pool")
-
-            # Podium Header
-            header_clip = TextClip(
-                event_title.upper(), fontsize=34, color="#38BDF8", font="Arial", size=(640, None), method="caption"
-            ).set_position(("center", 220)).set_duration(5)
-            layers.append(header_clip)
-
-            # 3D Podium Block Representation (Gold 1st place center)
-            podium_gold = TextClip(
-                f"1st PLACE\n\n{winner_name}\n{winner_prize}",
-                fontsize=28, color="black", bg_color="#FACC15", font="Arial", size=(400, 350), method="caption"
-            ).set_position(("center", 380)).set_duration(5)
-            layers.append(podium_gold)
-
-            # Congratulatory Footer
-            congrats_clip = TextClip(
-                "Congratulations to our Fantasy Champion!", fontsize=26, color="white", font="Arial", size=(640, None), method="caption"
-            ).set_position(("center", 820)).set_duration(5)
-            layers.append(congrats_clip)
-
-            cta_clip = TextClip(
-                "Check Full Leaderboard on Indus Gamers", fontsize=28, color="white", bg_color="#7C3AED", size=(580, 75), method="caption"
-            ).set_position(("center", 940)).set_duration(5)
-            layers.append(cta_clip)
-
-        # Render Final Composite Video
-        final_video = CompositeVideoClip(layers, size=(720, 1280))
-
+        width, height = 720, 1280
+        fps = 30
+        duration_seconds = 5
+        total_frames = fps * duration_seconds
+        
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-        temp_output_path = temp_file.name
+        temp_filename = temp_file.name
         temp_file.close()
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
+        
+        team1 = data.get("team1_code", "PAK").upper()
+        team2 = data.get("team2_code", "SL").upper()
+        title = data.get("title", f"{team1} vs {team2}")
+        subtitle = data.get("subtitle", "Lineups Lock in 2 Hours!")
+        winner_name = data.get("winner_name", "User_Ali92")
+        winner_prize = data.get("winner_prize", "$500 USDT Prize")
 
-        final_video.write_videofile(
-            temp_output_path, fps=24, codec="libx264", audio=False, preset="ultrafast"
-        )
-
-        return FileResponse(
-            temp_output_path, media_type="video/mp4", filename=f"indus_gamers_{video_type}.mp4"
-        )
-
+        for frame_idx in range(total_frames):
+            # Base dark navy sports background
+            frame = np.zeros((height, width, 3), dtype=np.uint8)
+            frame[:] = (42, 23, 15) # BGR format: Deep Navy
+            
+            # Top Branding
+            cv2.putText(frame, "INDUS GAMERS", (180, 120), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 250), 3, cv2.LINE_AA)
+            
+            if video_type == "match_reminder":
+                # Team 1 Badge Box
+                cv2.rectangle(frame, (80, 340), (280, 520), (216, 77, 29), -1) # Blue in BGR
+                cv2.putText(frame, team1, (110, 450), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
+                
+                # VS text
+                cv2.putText(frame, "VS", (325, 440), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (184, 163, 148), 2, cv2.LINE_AA)
+                
+                # Team 2 Badge Box
+                cv2.rectangle(frame, (440, 340), (640, 520), (38, 38, 220), -1) # Red in BGR
+                cv2.putText(frame, team2, (475, 450), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
+                
+                # Match Title & Subtitle
+                cv2.putText(frame, title.upper(), (60, 680), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, subtitle, (80, 780), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (153, 211, 52), 2, cv2.LINE_AA)
+                
+                # Action Button Banner
+                cv2.rectangle(frame, (80, 920), (640, 1020), (105, 150, 5), -1) # Green button
+                cv2.putText(frame, "Build Your XI Now", (140, 985), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+                
+            elif video_type == "match_podium":
+                # Header
+                cv2.putText(frame, "TRI-SERIES FINALS", (130, 240), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (238, 189, 56), 2, cv2.LINE_AA)
+                
+                # Podium Gold Box
+                cv2.rectangle(frame, (160, 380), (560, 720), (21, 215, 255), -1) # Gold in BGR
+                cv2.putText(frame, "1st PLACE CHAMPION", (195, 440), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2, cv2.LINE_AA)
+                cv2.putText(frame, winner_name, (210, 540), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(frame, winner_prize, (210, 630), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (40, 40, 40), 2, cv2.LINE_AA)
+                
+                # Footer CTA
+                cv2.rectangle(frame, (80, 920), (640, 1020), (173, 58, 124), -1) # Purple button
+                cv2.putText(frame, "Check Full Leaderboard", (150, 985), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+                
+            out.write(frame)
+            
+        out.release()
+        return FileResponse(temp_filename, media_type="video/mp4", filename=f"indus_gamers_{video_type}.mp4")
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)}")
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        raise HTTPException(status_code=500, detail=str(e))
