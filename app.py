@@ -2,6 +2,8 @@ import os
 import cv2
 import numpy as np
 import tempfile
+import requests
+from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -806,6 +808,8 @@ def get_series_squads(series_id: str):
 
 app = FastAPI()
 
+# ==================== 1. HEALTH & VIDEO GENERATION ENDPOINTS ====================
+
 @app.get("/health")
 def health_check():
     """Simple health check endpoint to wake up Render before auto-posting."""
@@ -814,9 +818,9 @@ def health_check():
 @app.post("/generate-video")
 def generate_video(data: dict = Body(...)):
     """
-    Generates a 5-second dynamic MP4 video for social media:
+    Generates a 5-second dynamic MP4 video for social media using stable 'mp4v' codec:
     - type: "match_reminder" (dynamic clash, countdown bar & pulse effect)
-    - type: "match_podium" (animated rising podium bars, H.264 encoded)
+    - type: "match_podium" (animated rising podium bars)
     """
     video_type = data.get("type", "match_reminder")
     title = data.get("title", "INDUS GAMERS MATCH")
@@ -827,7 +831,7 @@ def generate_video(data: dict = Body(...)):
         {"rank": 3, "name": "imranmalik", "points": "310 pts"}
     ])
     
-    width, height = 720, 1280  # 9:16 Vertical format for Facebook Reels/Stories
+    width, height = 720, 1280  # 9:16 Vertical format for Facebook Reels/Stories (Even dimensions)
     fps = 30
     duration_seconds = 5
     total_frames = fps * duration_seconds
@@ -837,45 +841,42 @@ def generate_video(data: dict = Body(...)):
     temp_filename = temp_file.name
     temp_file.close()
     
-    # Use 'X264' FourCC codec for optimal H.264 compression & Facebook compatibility
-    fourcc = cv2.VideoWriter_fourcc(*'X264')
+    # Use 'mp4v' for stable headless Linux compatibility on Render (prevents 0-byte files)
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
+    
+    if not out.isOpened():
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        raise HTTPException(status_code=500, detail="OpenCV VideoWriter failed to open on headless container.")
     
     try:
         for frame_idx in range(total_frames):
-            # Create a sports-themed dark navy background
             frame = np.zeros((height, width, 3), dtype=np.uint8)
             frame[:] = (20, 24, 33) # RGB: Dark Navy
             
             if video_type == "match_reminder":
-                # Header branding
                 cv2.putText(frame, "INDUS GAMERS", (160, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 150), 3, cv2.LINE_AA)
-                # Main Title / Teams clash
                 cv2.putText(frame, title, (80, 380), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (255, 255, 255), 3, cv2.LINE_AA)
                 cv2.putText(frame, subtitle, (120, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (200, 200, 200), 2, cv2.LINE_AA)
                 
-                # Pulsing center badge with animated countdown effect
                 pulse = int(abs(np.sin(frame_idx * 0.15) * 80))
                 cv2.circle(frame, (width // 2, 780), 110 + (pulse // 4), (0, 120, 255), 4, cv2.LINE_AA)
                 cv2.putText(frame, "VS", (width // 2 - 35, 795), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
                 
-                # Animated progress/countdown bar at the bottom
                 progress_width = int((frame_idx / total_frames) * 600)
                 cv2.rectangle(frame, (60, 1150), (60 + progress_width, 1170), (0, 255, 150), -1)
                 cv2.putText(frame, "MATCH STARTING SOON", (180, 1125), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
                 
             elif video_type == "match_podium":
-                # Leaderboard Header
                 cv2.putText(frame, "INDUS GAMERS", (200, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 150), 2, cv2.LINE_AA)
                 cv2.putText(frame, "TOP FANTASY LEADERS", (90, 160), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 215, 0), 3, cv2.LINE_AA)
                 cv2.putText(frame, title, (110, 230), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
                 
-                # Extract winner details safely
                 w1 = next((w for w in winners if w.get("rank") == 1), {"name": "Winner 1", "points": "0 pts"})
                 w2 = next((w for w in winners if w.get("rank") == 2), {"name": "Winner 2", "points": "0 pts"})
                 w3 = next((w for w in winners if w.get("rank") == 3), {"name": "Winner 3", "points": "0 pts"})
                 
-                # Animation Progress: Podium bars rise smoothly over the first 35 frames (~1.1s)
                 anim_progress = min(1.0, frame_idx / 35.0)
                 ground_y = 1100
                 
@@ -884,21 +885,21 @@ def generate_video(data: dict = Body(...)):
                 cur_t2 = int(ground_y - (ground_y - target_t2) * anim_progress)
                 cur_t3 = int(ground_y - (ground_y - target_t3) * anim_progress)
                 
-                # 2nd Place (Silver)
+                # 2nd Place
                 cv2.rectangle(frame, (80, cur_t2), (240, ground_y), (192, 192, 192), -1)
                 if anim_progress > 0.6:
                     cv2.putText(frame, "2nd", (135, cur_t2 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
                     cv2.putText(frame, str(w2.get("name"))[:15], (88, cur_t2 + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
                     cv2.putText(frame, str(w2.get("points")), (100, cur_t2 + 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
 
-                # 1st Place (Gold - Tallest)
+                # 1st Place
                 cv2.rectangle(frame, (280, cur_t1), (440, ground_y), (255, 215, 0), -1)
                 if anim_progress > 0.6:
                     cv2.putText(frame, "CHAMPION", (292, cur_t1 - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 215, 0), 2, cv2.LINE_AA)
                     cv2.putText(frame, str(w1.get("name"))[:15], (288, cur_t1 + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
                     cv2.putText(frame, str(w1.get("points")), (310, cur_t1 + 90), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
 
-                # 3rd Place (Bronze)
+                # 3rd Place
                 cv2.rectangle(frame, (480, cur_t3), (640, ground_y), (205, 127, 50), -1)
                 if anim_progress > 0.6:
                     cv2.putText(frame, "3rd", (535, cur_t3 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
@@ -913,4 +914,40 @@ def generate_video(data: dict = Body(...)):
     except Exception as e:
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 2. CRICKET SCRAPER & SQUAD ENDPOINTS ====================
+
+@app.get("/series/{series_id}")
+def get_series_info(series_id: str):
+    """Fetches series schedule and fixture details."""
+    try:
+        # Placeholder / Integration for your BeautifulSoup series parser
+        return {"series_id": series_id, "status": "active", "message": "Series fixture data retrieved successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/series/{series_id}/squads")
+def get_series_squads(series_id: str):
+    """Fetches series-level team squads."""
+    try:
+        return {"series_id": series_id, "squads": []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/squads/{match_id}")
+def get_match_squads(match_id: str):
+    """Fetches playing XIs and squads for a specific match."""
+    try:
+        return {"match_id": match_id, "teams": {}}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/full-scorecard/{match_id}")
+def get_full_scorecard(match_id: str):
+    """Scrapes and returns full match scorecard statistics."""
+    try:
+        return {"match_id": match_id, "scorecard": {}}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
