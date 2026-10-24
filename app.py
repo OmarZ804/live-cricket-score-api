@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import tempfile
 import requests
-from io import BytesIO
 from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException, Body
 
@@ -817,12 +816,11 @@ def health_check():
 def download_logo(team_code):
     """Downloads a transparent team logo from a public sports CDN on the fly."""
     try:
-        # Fallback public URL pattern for cricket team flags/logos (e.g., Wikimedia/ESPN cdn)
-        url = f"https://clearcrit.com/flags/{team_code.lower()}.png" # Or use your github raw link if hosted there
-        response = requests.get(url, timeout=3)
+        url = f"https://clearcrit.com/flags/{team_code.lower()}.png"
+        response = requests.get(url, timeout=2)
         if response.status_code == 200:
-            pil_img = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_UNCHANGED)
-            return pil_img
+            img = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_UNCHANGED)
+            return img
     except Exception:
         pass
     return None
@@ -844,7 +842,7 @@ def overlay_image(background, overlay, x, y, w, h):
 @app.post("/generate-video")
 def generate_video(data: dict = Body(...)):
     """
-    Generates high-end broadcast sports videos with dynamic logo fetching and sleek UI.
+    Generates high-end broadcast sports videos with working dynamic logo fetching.
     """
     try:
         video_type = data.get("type", "match_reminder")
@@ -854,13 +852,6 @@ def generate_video(data: dict = Body(...)):
         duration_seconds = 5
         total_frames = fps * duration_seconds
         
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-        temp_filename = temp_file.name
-        temp_file.close()
-        
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
-        
         team1 = data.get("team1_code", "PAK").upper()
         team2 = data.get("team2_code", "SL").upper()
         title = data.get("title", f"{team1} vs {team2}")
@@ -868,8 +859,19 @@ def generate_video(data: dict = Body(...)):
         winner_name = data.get("winner_name", "User_Ali92")
         winner_prize = data.get("winner_prize", "$250 USDT Prize")
 
+        # --- FETCH LOGOS ONCE BEFORE RENDERING FRAMES ---
+        logo1 = download_logo(team1)
+        logo2 = download_logo(team2)
+
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        temp_filename = temp_file.name
+        temp_file.close()
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
+
         for frame_idx in range(total_frames):
-            # 1. Rich Vertical Gradient Background (Deep Midnight Slate to Dark Blue)
+            # 1. Rich Vertical Gradient Background
             frame = np.zeros((height, width, 3), dtype=np.uint8)
             for y in range(height):
                 r = int(12 + (y / height) * 18)
@@ -877,13 +879,13 @@ def generate_video(data: dict = Body(...)):
                 b = int(40 + (y / height) * 50)
                 frame[y, :] = (b, g, r)
 
-            # Ambient stadium lighting effect
+            # Ambient stadium glow
             cv2.circle(frame, (360, 480), 320, (70, 50, 25), -1)
             frame = cv2.GaussianBlur(frame, (61, 61), 0)
 
-            # 2. Top Professional Broadcast Header
+            # 2. Top Broadcast Header
             cv2.rectangle(frame, (40, 60), (680, 140), (20, 28, 48), -1)
-            cv2.rectangle(frame, (40, 60), (680, 140), (0, 255, 250), 2) # Cyan neon border
+            cv2.rectangle(frame, (40, 60), (680, 140), (0, 255, 250), 2)
             cv2.putText(frame, "INDUS GAMERS", (195, 115), cv2.FONT_HERSHEY_DUPLEX, 1.1, (0, 255, 250), 2, cv2.LINE_AA)
 
             if video_type == "match_reminder":
@@ -894,7 +896,12 @@ def generate_video(data: dict = Body(...)):
                 # Team 1 Crest Box (Left)
                 cv2.rectangle(frame, (80, 280), (280, 480), (220, 70, 20), -1)
                 cv2.rectangle(frame, (80, 280), (280, 480), (255, 255, 255), 2)
-                cv2.putText(frame, team1, (115, 390), cv2.FONT_HERSHEY_DUPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
+                
+                # STAMP LOGO 1 (If available, otherwise fallback to text)
+                if logo1 is not None:
+                    frame = overlay_image(frame, logo1, 100, 300, 160, 160)
+                else:
+                    cv2.putText(frame, team1, (115, 390), cv2.FONT_HERSHEY_DUPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
 
                 # VS Badge Center
                 cv2.circle(frame, (360, 380), 45, (15, 20, 32), -1)
@@ -904,17 +911,22 @@ def generate_video(data: dict = Body(...)):
                 # Team 2 Crest Box (Right)
                 cv2.rectangle(frame, (440, 280), (640, 480), (20, 50, 210), -1)
                 cv2.rectangle(frame, (440, 280), (640, 480), (255, 255, 255), 2)
-                cv2.putText(frame, team2, (480, 390), cv2.FONT_HERSHEY_DUPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
+                
+                # STAMP LOGO 2 (If available, otherwise fallback to text)
+                if logo2 is not None:
+                    frame = overlay_image(frame, logo2, 460, 300, 160, 160)
+                else:
+                    cv2.putText(frame, team2, (480, 390), cv2.FONT_HERSHEY_DUPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
 
                 # Match Title Banner
                 cv2.putText(frame, title.upper(), (60, 700), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
                 
-                # Subtitle / Countdown Info Box
+                # Subtitle Box
                 cv2.rectangle(frame, (40, 760), (680, 860), (15, 55, 35), -1)
                 cv2.rectangle(frame, (40, 760), (680, 860), (50, 205, 50), 2)
                 cv2.putText(frame, subtitle, (70, 822), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (100, 255, 150), 2, cv2.LINE_AA)
 
-                # Call to Action Button (Gold)
+                # CTA Button
                 cv2.rectangle(frame, (40, 940), (680, 1060), (0, 215, 255), -1)
                 cv2.putText(frame, "BUILD YOUR FANTASY XI", (115, 1012), cv2.FONT_HERSHEY_DUPLEX, 0.9, (0, 0, 0), 2, cv2.LINE_AA)
 
@@ -922,20 +934,17 @@ def generate_video(data: dict = Body(...)):
                 # --- CHAMPION PODIUM CARD ---
                 cv2.putText(frame, "OFFICIAL LEADERBOARD", (140, 200), cv2.FONT_HERSHEY_DUPLEX, 0.9, (180, 190, 210), 2, cv2.LINE_AA)
 
-                # Gold Winner Podium Card
                 cv2.rectangle(frame, (80, 280), (640, 760), (18, 28, 48), -1)
-                cv2.rectangle(frame, (80, 280), (640, 760), (0, 215, 255), 3) # Gold Neon Border
+                cv2.rectangle(frame, (80, 280), (640, 760), (0, 215, 255), 3)
 
                 cv2.putText(frame, "1ST PLACE CHAMPION", (150, 360), cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 215, 255), 2, cv2.LINE_AA)
                 
-                # Winner Name & Prize Highlight Box
                 cv2.rectangle(frame, (120, 420), (600, 540), (0, 215, 255), -1)
                 cv2.putText(frame, winner_name, (160, 492), cv2.FONT_HERSHEY_DUPLEX, 1.3, (0, 0, 0), 3, cv2.LINE_AA)
 
                 cv2.putText(frame, winner_prize, (200, 640), cv2.FONT_HERSHEY_DUPLEX, 1.1, (255, 255, 255), 2, cv2.LINE_AA)
                 cv2.putText(frame, "Prize Credited to Wallet", (210, 695), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 200, 250), 1, cv2.LINE_AA)
 
-                # Footer Action Button
                 cv2.rectangle(frame, (40, 940), (680, 1060), (140, 40, 190), -1)
                 cv2.putText(frame, "VIEW FULL LEADERBOARD", (145, 1012), cv2.FONT_HERSHEY_DUPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
 
