@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import tempfile
 from fastapi import FastAPI, HTTPException, Body
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 import requests
 from bs4 import BeautifulSoup
@@ -806,16 +806,26 @@ def get_series_squads(series_id: str):
 
 app = FastAPI()
 
+@app.get("/health")
+def health_check():
+    """Simple health check endpoint to wake up Render before auto-posting."""
+    return {"status": "ok"}
+
 @app.post("/generate-video")
 def generate_video(data: dict = Body(...)):
     """
     Generates a 5-second dynamic MP4 video for social media:
-    - type: "match_reminder" (dynamic clash, team shields, countdown feel)
-    - type: "match_podium" (3D podium layout, winner rankings)
+    - type: "match_reminder" (dynamic clash, countdown feel)
+    - type: "match_podium" (dynamic podium layout with 1st, 2nd, 3rd player usernames & points)
     """
     video_type = data.get("type", "match_reminder")
     title = data.get("title", "INDUS GAMERS MATCH")
     subtitle = data.get("subtitle", "Play Now & Win!")
+    winners = data.get("winners", [
+        {"rank": 1, "name": "gordanion", "points": "450 pts"},
+        {"rank": 2, "name": "hadersheryar", "points": "380 pts"},
+        {"rank": 3, "name": "imranmalik", "points": "310 pts"}
+    ])
     
     width, height = 720, 1280  # 9:16 Vertical format for Facebook Reels/Stories
     fps = 30
@@ -827,6 +837,7 @@ def generate_video(data: dict = Body(...)):
     temp_filename = temp_file.name
     temp_file.close()
     
+    # Using 'mp4v' or 'X264' compatible configuration via OpenCV writer
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
     
@@ -840,25 +851,48 @@ def generate_video(data: dict = Body(...)):
                 # Header branding
                 cv2.putText(frame, "INDUS GAMERS", (160, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 150), 3, cv2.LINE_AA)
                 # Main Title / Teams clash
-                cv2.putText(frame, title, (80, 380), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 3, cv2.LINE_AA)
-                cv2.putText(frame, subtitle, (140, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (200, 200, 200), 2, cv2.LINE_AA)
+                cv2.putText(frame, title, (80, 380), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (255, 255, 255), 3, cv2.LINE_AA)
+                cv2.putText(frame, subtitle, (120, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (200, 200, 200), 2, cv2.LINE_AA)
                 
-                # Pulsing center badge
+                # Pulsing center badge with animated countdown effect
                 pulse = int(abs(np.sin(frame_idx * 0.15) * 80))
                 cv2.circle(frame, (width // 2, 780), 110 + (pulse // 4), (0, 120, 255), 4, cv2.LINE_AA)
                 cv2.putText(frame, "VS", (width // 2 - 35, 795), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
                 
+                # Animated progress/countdown bar at the bottom
+                progress_width = int((frame_idx / total_frames) * 600)
+                cv2.rectangle(frame, (60, 1150), (60 + progress_width, 1170), (0, 255, 150), -1)
+                cv2.putText(frame, "MATCH STARTING SOON", (180, 1125), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+                
             elif video_type == "match_podium":
                 # Leaderboard Header
-                cv2.putText(frame, "TOP FANTASY LEADERS", (90, 150), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 215, 0), 3, cv2.LINE_AA)
-                cv2.putText(frame, title, (100, 240), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3, cv2.LINE_AA)
+                cv2.putText(frame, "INDUS GAMERS", (200, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 150), 2, cv2.LINE_AA)
+                cv2.putText(frame, "TOP FANTASY LEADERS", (90, 160), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 215, 0), 3, cv2.LINE_AA)
+                cv2.putText(frame, title, (110, 230), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
                 
-                # Draw Podium Bars (Silver 2nd, Gold 1st, Bronze 3rd)
-                cv2.rectangle(frame, (140, 720), (260, 1100), (192, 192, 192), -1) 
-                cv2.rectangle(frame, (300, 560), (420, 1100), (255, 215, 0), -1) 
-                cv2.rectangle(frame, (460, 800), (580, 1100), (205, 127, 50), -1) 
+                # Extract winner details safely
+                w1 = next((w for w in winners if w.get("rank") == 1), {"name": "Winner 1", "points": "0 pts"})
+                w2 = next((w for w in winners if w.get("rank") == 2), {"name": "Winner 2", "points": "0 pts"})
+                w3 = next((w for w in winners if w.get("rank") == 3), {"name": "Winner 3", "points": "0 pts"})
                 
-                cv2.putText(frame, "1st", (340, 530), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+                # Draw Podium Bars (Silver 2nd [Left], Gold 1st [Center], Bronze 3rd [Right])
+                # 2nd Place (Silver)
+                cv2.rectangle(frame, (80, 750), (240, 1100), (192, 192, 192), -1)
+                cv2.putText(frame, "2nd", (135, 730), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w2.get("name"))[:10], (90, 1000), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w2.get("points")), (100, 1040), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (20, 24, 33), 2, cv2.LINE_AA)
+
+                # 1st Place (Gold - Tallest)
+                cv2.rectangle(frame, (280, 620), (440, 1100), (255, 215, 0), -1)
+                cv2.putText(frame, "1st 🏆", (325, 600), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w1.get("name"))[:10], (290, 880), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w1.get("points")), (305, 920), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 24, 33), 2, cv2.LINE_AA)
+
+                # 3rd Place (Bronze)
+                cv2.rectangle(frame, (480, 830), (640, 1100), (205, 127, 50), -1)
+                cv2.putText(frame, "3rd", (535, 810), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w3.get("name"))[:10], (490, 1050), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w3.get("points")), (505, 1090), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (20, 24, 33), 2, cv2.LINE_AA)
             
             out.write(frame)
             
