@@ -4,3 +4,4 @@ requests>=2.31.0
 beautifulsoup4>=4.12.2
 opencv-python-headless==4.8.1.78
 numpy>=1.22.0,<2.0.0
+httpx>=0.24.0
