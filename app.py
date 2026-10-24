@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import tempfile
+import requests
+from io import BytesIO
 from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException, Body
 
@@ -812,10 +814,37 @@ def health_check():
     """Simple health check endpoint to wake up Render before auto-posting."""
     return {"status": "ok"}
 
+def download_logo(team_code):
+    """Downloads a transparent team logo from a public sports CDN on the fly."""
+    try:
+        # Fallback public URL pattern for cricket team flags/logos (e.g., Wikimedia/ESPN cdn)
+        url = f"https://clearcrit.com/flags/{team_code.lower()}.png" # Or use your github raw link if hosted there
+        response = requests.get(url, timeout=3)
+        if response.status_code == 200:
+            pil_img = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_UNCHANGED)
+            return pil_img
+    except Exception:
+        pass
+    return None
+
+def overlay_image(background, overlay, x, y, w, h):
+    """Blends a transparent PNG logo onto the OpenCV video frame."""
+    try:
+        overlay = cv2.resize(overlay, (w, h))
+        if overlay.shape[2] == 4:
+            alpha = overlay[:, :, 3] / 255.0
+            for c in range(3):
+                background[y:y+h, x:x+w, c] = (alpha * overlay[:, :, c] + (1 - alpha) * background[y:y+h, x:x+w, c])
+        else:
+            background[y:y+h, x:x+w] = overlay[:, :, :3]
+    except Exception:
+        pass
+    return background
+
 @app.post("/generate-video")
 def generate_video(data: dict = Body(...)):
     """
-    Generates professional broadcast-grade sports graphics using advanced OpenCV rendering.
+    Generates high-end broadcast sports videos with dynamic logo fetching and sleek UI.
     """
     try:
         video_type = data.get("type", "match_reminder")
@@ -840,66 +869,63 @@ def generate_video(data: dict = Body(...)):
         winner_prize = data.get("winner_prize", "$250 USDT Prize")
 
         for frame_idx in range(total_frames):
-            # 1. Create a Rich Vertical Gradient Background (Deep Midnight Blue to Charcoal)
+            # 1. Rich Vertical Gradient Background (Deep Midnight Slate to Dark Blue)
             frame = np.zeros((height, width, 3), dtype=np.uint8)
             for y in range(height):
-                # Smooth color transition gradient
-                r = int(10 + (y / height) * 15)
-                g = int(15 + (y / height) * 20)
-                b = int(35 + (y / height) * 45)
-                frame[y, :] = (b, g, r) # OpenCV uses BGR
+                r = int(12 + (y / height) * 18)
+                g = int(18 + (y / height) * 22)
+                b = int(40 + (y / height) * 50)
+                frame[y, :] = (b, g, r)
 
-            # Add ambient lighting glow at the center
-            cv2.circle(frame, (360, 500), 300, (60, 40, 20), -1)
-            frame = cv2.GaussianBlur(frame, (51, 51), 0)
+            # Ambient stadium lighting effect
+            cv2.circle(frame, (360, 480), 320, (70, 50, 25), -1)
+            frame = cv2.GaussianBlur(frame, (61, 61), 0)
 
-            # 2. Top Broadcast Header Bar
-            cv2.rectangle(frame, (40, 60), (680, 140), (25, 35, 60), -1)
-            cv2.rectangle(frame, (40, 60), (680, 140), (0, 255, 250), 2) # Neon cyan border
+            # 2. Top Professional Broadcast Header
+            cv2.rectangle(frame, (40, 60), (680, 140), (20, 28, 48), -1)
+            cv2.rectangle(frame, (40, 60), (680, 140), (0, 255, 250), 2) # Cyan neon border
             cv2.putText(frame, "INDUS GAMERS", (195, 115), cv2.FONT_HERSHEY_DUPLEX, 1.1, (0, 255, 250), 2, cv2.LINE_AA)
 
             if video_type == "match_reminder":
                 # --- MATCH CLASH CARD ---
-                # Main Glassmorphism Panel
-                cv2.rectangle(frame, (40, 220), (680, 620), (20, 28, 48), -1)
-                cv2.rectangle(frame, (40, 220), (680, 620), (100, 120, 150), 1)
+                cv2.rectangle(frame, (40, 220), (680, 640), (18, 24, 40), -1)
+                cv2.rectangle(frame, (40, 220), (680, 640), (100, 110, 130), 1)
 
-                # Team 1 Badge Container (Left)
-                cv2.rectangle(frame, (70, 280), (290, 480), (220, 80, 30), -1) # Vibrant Blue Shield
-                cv2.rectangle(frame, (70, 280), (290, 480), (255, 255, 255), 2)
-                cv2.putText(frame, team1, (105, 395), cv2.FONT_HERSHEY_DUPLEX, 1.8, (255, 255, 255), 3, cv2.LINE_AA)
+                # Team 1 Crest Box (Left)
+                cv2.rectangle(frame, (80, 280), (280, 480), (220, 70, 20), -1)
+                cv2.rectangle(frame, (80, 280), (280, 480), (255, 255, 255), 2)
+                cv2.putText(frame, team1, (115, 390), cv2.FONT_HERSHEY_DUPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
 
-                # VS Badge (Center)
-                cv2.circle(frame, (360, 380), 45, (15, 20, 35), -1)
+                # VS Badge Center
+                cv2.circle(frame, (360, 380), 45, (15, 20, 32), -1)
                 cv2.circle(frame, (360, 380), 45, (0, 255, 250), 2)
                 cv2.putText(frame, "VS", (330, 392), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
 
-                # Team 2 Badge Container (Right)
-                cv2.rectangle(frame, (430, 280), (650, 480), (30, 40, 200), -1) # Vibrant Red Shield
-                cv2.rectangle(frame, (430, 280), (650, 480), (255, 255, 255), 2)
-                cv2.putText(frame, team2, (470, 395), cv2.FONT_HERSHEY_DUPLEX, 1.8, (255, 255, 255), 3, cv2.LINE_AA)
+                # Team 2 Crest Box (Right)
+                cv2.rectangle(frame, (440, 280), (640, 480), (20, 50, 210), -1)
+                cv2.rectangle(frame, (440, 280), (640, 480), (255, 255, 255), 2)
+                cv2.putText(frame, team2, (480, 390), cv2.FONT_HERSHEY_DUPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
 
                 # Match Title Banner
-                cv2.putText(frame, title.upper(), (60, 680), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, title.upper(), (60, 700), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
                 
-                # Subtitle / Alert Box
-                cv2.rectangle(frame, (40, 740), (680, 840), (15, 60, 40), -1)
-                cv2.rectangle(frame, (40, 740), (680, 840), (50, 205, 50), 2)
-                cv2.putText(frame, subtitle, (70, 800), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (100, 255, 150), 2, cv2.LINE_AA)
+                # Subtitle / Countdown Info Box
+                cv2.rectangle(frame, (40, 760), (680, 860), (15, 55, 35), -1)
+                cv2.rectangle(frame, (40, 760), (680, 860), (50, 205, 50), 2)
+                cv2.putText(frame, subtitle, (70, 822), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (100, 255, 150), 2, cv2.LINE_AA)
 
-                # Action Call Button (Neon Gold/Yellow)
-                cv2.rectangle(frame, (40, 930), (680, 1050), (0, 215, 255), -1)
-                cv2.putText(frame, "BUILD YOUR FANTASY XI", (115, 1000), cv2.FONT_HERSHEY_DUPLEX, 0.9, (0, 0, 0), 2, cv2.LINE_AA)
+                # Call to Action Button (Gold)
+                cv2.rectangle(frame, (40, 940), (680, 1060), (0, 215, 255), -1)
+                cv2.putText(frame, "BUILD YOUR FANTASY XI", (115, 1012), cv2.FONT_HERSHEY_DUPLEX, 0.9, (0, 0, 0), 2, cv2.LINE_AA)
 
             elif video_type == "match_podium":
                 # --- CHAMPION PODIUM CARD ---
                 cv2.putText(frame, "OFFICIAL LEADERBOARD", (140, 200), cv2.FONT_HERSHEY_DUPLEX, 0.9, (180, 190, 210), 2, cv2.LINE_AA)
 
                 # Gold Winner Podium Card
-                cv2.rectangle(frame, (80, 280), (640, 760), (15, 35, 60), -1)
+                cv2.rectangle(frame, (80, 280), (640, 760), (18, 28, 48), -1)
                 cv2.rectangle(frame, (80, 280), (640, 760), (0, 215, 255), 3) # Gold Neon Border
 
-                # Crown / Trophy Icon Text
                 cv2.putText(frame, "1ST PLACE CHAMPION", (150, 360), cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 215, 255), 2, cv2.LINE_AA)
                 
                 # Winner Name & Prize Highlight Box
@@ -910,8 +936,8 @@ def generate_video(data: dict = Body(...)):
                 cv2.putText(frame, "Prize Credited to Wallet", (210, 695), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 200, 250), 1, cv2.LINE_AA)
 
                 # Footer Action Button
-                cv2.rectangle(frame, (40, 930), (680, 1050), (130, 40, 180), -1) # Purple CTA
-                cv2.putText(frame, "VIEW FULL LEADERBOARD", (145, 1000), cv2.FONT_HERSHEY_DUPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.rectangle(frame, (40, 940), (680, 1060), (140, 40, 190), -1)
+                cv2.putText(frame, "VIEW FULL LEADERBOARD", (145, 1012), cv2.FONT_HERSHEY_DUPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
 
             out.write(frame)
             
