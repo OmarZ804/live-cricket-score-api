@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import tempfile
 from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Body
 
 import requests
 from bs4 import BeautifulSoup
