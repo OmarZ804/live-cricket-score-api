@@ -815,8 +815,8 @@ def health_check():
 def generate_video(data: dict = Body(...)):
     """
     Generates a 5-second dynamic MP4 video for social media:
-    - type: "match_reminder" (dynamic clash, countdown feel)
-    - type: "match_podium" (polished podium layout with uniform vertical alignment & 15-char names)
+    - type: "match_reminder" (dynamic clash, countdown bar & pulse effect)
+    - type: "match_podium" (animated rising podium bars, H.264 encoded)
     """
     video_type = data.get("type", "match_reminder")
     title = data.get("title", "INDUS GAMERS MATCH")
@@ -837,7 +837,8 @@ def generate_video(data: dict = Body(...)):
     temp_filename = temp_file.name
     temp_file.close()
     
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    # Use 'X264' FourCC codec for optimal H.264 compression & Facebook compatibility
+    fourcc = cv2.VideoWriter_fourcc(*'X264')
     out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
     
     try:
@@ -874,25 +875,35 @@ def generate_video(data: dict = Body(...)):
                 w2 = next((w for w in winners if w.get("rank") == 2), {"name": "Winner 2", "points": "0 pts"})
                 w3 = next((w for w in winners if w.get("rank") == 3), {"name": "Winner 3", "points": "0 pts"})
                 
-                # Draw Podium Bars (Silver 2nd [Left], Gold 1st [Center], Bronze 3rd [Right])
+                # Animation Progress: Podium bars rise smoothly over the first 35 frames (~1.1s)
+                anim_progress = min(1.0, frame_idx / 35.0)
+                ground_y = 1100
                 
-                # 2nd Place (Silver) - Column top is y=750
-                cv2.rectangle(frame, (80, 750), (240, 1100), (192, 192, 192), -1)
-                cv2.putText(frame, "2nd", (135, 730), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w2.get("name"))[:15], (88, 810), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w2.get("points")), (100, 845), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
+                target_t1, target_t2, target_t3 = 620, 750, 830
+                cur_t1 = int(ground_y - (ground_y - target_t1) * anim_progress)
+                cur_t2 = int(ground_y - (ground_y - target_t2) * anim_progress)
+                cur_t3 = int(ground_y - (ground_y - target_t3) * anim_progress)
+                
+                # 2nd Place (Silver)
+                cv2.rectangle(frame, (80, cur_t2), (240, ground_y), (192, 192, 192), -1)
+                if anim_progress > 0.6:
+                    cv2.putText(frame, "2nd", (135, cur_t2 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+                    cv2.putText(frame, str(w2.get("name"))[:15], (88, cur_t2 + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
+                    cv2.putText(frame, str(w2.get("points")), (100, cur_t2 + 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
 
-                # 1st Place (Gold - Tallest) - Column top is y=620
-                cv2.rectangle(frame, (280, 620), (440, 1100), (255, 215, 0), -1)
-                cv2.putText(frame, "CHAMPION", (292, 595), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 215, 0), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w1.get("name"))[:15], (288, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w1.get("points")), (310, 715), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
+                # 1st Place (Gold - Tallest)
+                cv2.rectangle(frame, (280, cur_t1), (440, ground_y), (255, 215, 0), -1)
+                if anim_progress > 0.6:
+                    cv2.putText(frame, "CHAMPION", (292, cur_t1 - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 215, 0), 2, cv2.LINE_AA)
+                    cv2.putText(frame, str(w1.get("name"))[:15], (288, cur_t1 + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
+                    cv2.putText(frame, str(w1.get("points")), (310, cur_t1 + 90), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
 
-                # 3rd Place (Bronze) - Column top is y=830
-                cv2.rectangle(frame, (480, 830), (640, 1100), (205, 127, 50), -1)
-                cv2.putText(frame, "3rd", (535, 810), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w3.get("name"))[:15], (488, 890), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w3.get("points")), (505, 925), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
+                # 3rd Place (Bronze)
+                cv2.rectangle(frame, (480, cur_t3), (640, ground_y), (205, 127, 50), -1)
+                if anim_progress > 0.6:
+                    cv2.putText(frame, "3rd", (535, cur_t3 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+                    cv2.putText(frame, str(w3.get("name"))[:15], (488, cur_t3 + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
+                    cv2.putText(frame, str(w3.get("points")), (505, cur_t3 + 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
             
             out.write(frame)
             
