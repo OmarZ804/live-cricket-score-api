@@ -816,7 +816,7 @@ def generate_video(data: dict = Body(...)):
     """
     Generates a 5-second dynamic MP4 video for social media:
     - type: "match_reminder" (dynamic clash, countdown feel)
-    - type: "match_podium" (dynamic podium layout with 1st, 2nd, 3rd player usernames & points)
+    - type: "match_podium" (polished podium layout with uniform vertical alignment & 15-char names)
     """
     video_type = data.get("type", "match_reminder")
     title = data.get("title", "INDUS GAMERS MATCH")
@@ -837,7 +837,6 @@ def generate_video(data: dict = Body(...)):
     temp_filename = temp_file.name
     temp_file.close()
     
-    # Using 'mp4v' or 'X264' compatible configuration via OpenCV writer
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
     
@@ -876,23 +875,24 @@ def generate_video(data: dict = Body(...)):
                 w3 = next((w for w in winners if w.get("rank") == 3), {"name": "Winner 3", "points": "0 pts"})
                 
                 # Draw Podium Bars (Silver 2nd [Left], Gold 1st [Center], Bronze 3rd [Right])
-                # 2nd Place (Silver)
+                
+                # 2nd Place (Silver) - Column top is y=750
                 cv2.rectangle(frame, (80, 750), (240, 1100), (192, 192, 192), -1)
                 cv2.putText(frame, "2nd", (135, 730), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w2.get("name"))[:10], (90, 1000), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (20, 24, 33), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w2.get("points")), (100, 1040), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w2.get("name"))[:15], (88, 810), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w2.get("points")), (100, 845), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
 
-                # 1st Place (Gold - Tallest)
+                # 1st Place (Gold - Tallest) - Column top is y=620
                 cv2.rectangle(frame, (280, 620), (440, 1100), (255, 215, 0), -1)
-                cv2.putText(frame, "1st 🏆", (325, 600), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w1.get("name"))[:10], (290, 880), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 24, 33), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w1.get("points")), (305, 920), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, "CHAMPION", (292, 595), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 215, 0), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w1.get("name"))[:15], (288, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w1.get("points")), (310, 715), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
 
-                # 3rd Place (Bronze)
+                # 3rd Place (Bronze) - Column top is y=830
                 cv2.rectangle(frame, (480, 830), (640, 1100), (205, 127, 50), -1)
                 cv2.putText(frame, "3rd", (535, 810), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w3.get("name"))[:10], (490, 1050), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (20, 24, 33), 2, cv2.LINE_AA)
-                cv2.putText(frame, str(w3.get("points")), (505, 1090), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w3.get("name"))[:15], (488, 890), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
+                cv2.putText(frame, str(w3.get("points")), (505, 925), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
             
             out.write(frame)
             
