@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import tempfile
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import FileResponse
 
 import requests
@@ -802,6 +803,8 @@ def get_series_squads(series_id: str):
     result = extract_match_squads(first_match_id)
     result["series_id"] = series_id
     return result
+
+app = FastAPI()
 
 @app.post("/generate-video")
 def generate_video(data: dict = Body(...)):
