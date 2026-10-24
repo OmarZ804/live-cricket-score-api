@@ -1,9 +1,11 @@
-import cv2
-import numpy as np
-import tempfile
+import io
 import requests
-from fastapi.responses import FileResponse
-from fastapi import FastAPI, HTTPException, Body
+from bs4 import BeautifulSoup
+from fastapi import FastAPI, HTTPException, Response
+from pydantic import BaseModel
+from typing import List, Optional, Any, Dict
+
+from app.video_generator import generate_mp4_bytes
 
 import requests
 from bs4 import BeautifulSoup
@@ -806,154 +808,88 @@ def get_series_squads(series_id: str):
 
 app = FastAPI()
 
-# ==================== 1. HEALTH & VIDEO GENERATION ENDPOINTS ====================
+app = FastAPI(title="Indus Gamers Cricket & Video API")
 
+# --- HEALTH CHECK ---
 @app.get("/health")
 def health_check():
-    """Simple health check endpoint to wake up Render before auto-posting."""
     return {"status": "ok"}
 
-def download_logo(team_code):
-    """Downloads a transparent team logo from a public sports CDN on the fly."""
-    try:
-        url = f"https://clearcrit.com/flags/{team_code.lower()}.png"
-        response = requests.get(url, timeout=2)
-        if response.status_code == 200:
-            img = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_UNCHANGED)
-            return img
-    except Exception:
-        pass
-    return None
+# --- VIDEO GENERATION ---
+class Winner(BaseModel):
+    name: str
+    points: int
+    rank: Optional[int] = None
+    captain: Optional[str] = None
 
-def overlay_image(background, overlay, x, y, w, h):
-    """Blends a transparent PNG logo onto the OpenCV video frame."""
-    try:
-        overlay = cv2.resize(overlay, (w, h))
-        if overlay.shape[2] == 4:
-            alpha = overlay[:, :, 3] / 255.0
-            for c in range(3):
-                background[y:y+h, x:x+w, c] = (alpha * overlay[:, :, c] + (1 - alpha) * background[y:y+h, x:x+w, c])
-        else:
-            background[y:y+h, x:x+w] = overlay[:, :, :3]
-    except Exception:
-        pass
-    return background
+class VideoPayload(BaseModel):
+    type: str  # 'match_podium' or 'match_reminder'
+    title: str
+    subtitle: str
+    series: Optional[str] = ""
+    # Fields for podium
+    result: Optional[str] = ""
+    winners: Optional[List[Winner]] = []
+    # Fields for reminder
+    team_a: Optional[str] = ""
+    team_b: Optional[str] = ""
+    venue: Optional[str] = ""
+    deadline: Optional[str] = ""
 
 @app.post("/generate-video")
-def generate_video(data: dict = Body(...)):
-    """
-    Generates high-end broadcast sports videos with working dynamic logo fetching.
-    """
+def create_video(payload: VideoPayload):
     try:
-        video_type = data.get("type", "match_reminder")
-        
-        width, height = 720, 1280
-        fps = 30
-        duration_seconds = 5
-        total_frames = fps * duration_seconds
-        
-        team1 = data.get("team1_code", "PAK").upper()
-        team2 = data.get("team2_code", "SL").upper()
-        title = data.get("title", f"{team1} vs {team2}")
-        subtitle = data.get("subtitle", "Lineups Lock in 2 Hours!")
-        winner_name = data.get("winner_name", "User_Ali92")
-        winner_prize = data.get("winner_prize", "$250 USDT Prize")
-
-        # --- FETCH LOGOS ONCE BEFORE RENDERING FRAMES ---
-        logo1 = download_logo(team1)
-        logo2 = download_logo(team2)
-
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-        temp_filename = temp_file.name
-        temp_file.close()
-        
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
-
-        for frame_idx in range(total_frames):
-            # 1. Rich Vertical Gradient Background
-            frame = np.zeros((height, width, 3), dtype=np.uint8)
-            for y in range(height):
-                r = int(12 + (y / height) * 18)
-                g = int(18 + (y / height) * 22)
-                b = int(40 + (y / height) * 50)
-                frame[y, :] = (b, g, r)
-
-            # Ambient stadium glow
-            cv2.circle(frame, (360, 480), 320, (70, 50, 25), -1)
-            frame = cv2.GaussianBlur(frame, (61, 61), 0)
-
-            # 2. Top Broadcast Header
-            cv2.rectangle(frame, (40, 60), (680, 140), (20, 28, 48), -1)
-            cv2.rectangle(frame, (40, 60), (680, 140), (0, 255, 250), 2)
-            cv2.putText(frame, "INDUS GAMERS", (195, 115), cv2.FONT_HERSHEY_DUPLEX, 1.1, (0, 255, 250), 2, cv2.LINE_AA)
-
-            if video_type == "match_reminder":
-                # --- MATCH CLASH CARD ---
-                cv2.rectangle(frame, (40, 220), (680, 640), (18, 24, 40), -1)
-                cv2.rectangle(frame, (40, 220), (680, 640), (100, 110, 130), 1)
-
-                # Team 1 Crest Box (Left)
-                cv2.rectangle(frame, (80, 280), (280, 480), (220, 70, 20), -1)
-                cv2.rectangle(frame, (80, 280), (280, 480), (255, 255, 255), 2)
-                
-                # STAMP LOGO 1 (If available, otherwise fallback to text)
-                if logo1 is not None:
-                    frame = overlay_image(frame, logo1, 100, 300, 160, 160)
-                else:
-                    cv2.putText(frame, team1, (115, 390), cv2.FONT_HERSHEY_DUPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
-
-                # VS Badge Center
-                cv2.circle(frame, (360, 380), 45, (15, 20, 32), -1)
-                cv2.circle(frame, (360, 380), 45, (0, 255, 250), 2)
-                cv2.putText(frame, "VS", (330, 392), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
-
-                # Team 2 Crest Box (Right)
-                cv2.rectangle(frame, (440, 280), (640, 480), (20, 50, 210), -1)
-                cv2.rectangle(frame, (440, 280), (640, 480), (255, 255, 255), 2)
-                
-                # STAMP LOGO 2 (If available, otherwise fallback to text)
-                if logo2 is not None:
-                    frame = overlay_image(frame, logo2, 460, 300, 160, 160)
-                else:
-                    cv2.putText(frame, team2, (480, 390), cv2.FONT_HERSHEY_DUPLEX, 1.6, (255, 255, 255), 3, cv2.LINE_AA)
-
-                # Match Title Banner
-                cv2.putText(frame, title.upper(), (60, 700), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
-                
-                # Subtitle Box
-                cv2.rectangle(frame, (40, 760), (680, 860), (15, 55, 35), -1)
-                cv2.rectangle(frame, (40, 760), (680, 860), (50, 205, 50), 2)
-                cv2.putText(frame, subtitle, (70, 822), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (100, 255, 150), 2, cv2.LINE_AA)
-
-                # CTA Button
-                cv2.rectangle(frame, (40, 940), (680, 1060), (0, 215, 255), -1)
-                cv2.putText(frame, "BUILD YOUR FANTASY XI", (115, 1012), cv2.FONT_HERSHEY_DUPLEX, 0.9, (0, 0, 0), 2, cv2.LINE_AA)
-
-            elif video_type == "match_podium":
-                # --- CHAMPION PODIUM CARD ---
-                cv2.putText(frame, "OFFICIAL LEADERBOARD", (140, 200), cv2.FONT_HERSHEY_DUPLEX, 0.9, (180, 190, 210), 2, cv2.LINE_AA)
-
-                cv2.rectangle(frame, (80, 280), (640, 760), (18, 28, 48), -1)
-                cv2.rectangle(frame, (80, 280), (640, 760), (0, 215, 255), 3)
-
-                cv2.putText(frame, "1ST PLACE CHAMPION", (150, 360), cv2.FONT_HERSHEY_DUPLEX, 1.0, (0, 215, 255), 2, cv2.LINE_AA)
-                
-                cv2.rectangle(frame, (120, 420), (600, 540), (0, 215, 255), -1)
-                cv2.putText(frame, winner_name, (160, 492), cv2.FONT_HERSHEY_DUPLEX, 1.3, (0, 0, 0), 3, cv2.LINE_AA)
-
-                cv2.putText(frame, winner_prize, (200, 640), cv2.FONT_HERSHEY_DUPLEX, 1.1, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, "Prize Credited to Wallet", (210, 695), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 200, 250), 1, cv2.LINE_AA)
-
-                cv2.rectangle(frame, (40, 940), (680, 1060), (140, 40, 190), -1)
-                cv2.putText(frame, "VIEW FULL LEADERBOARD", (145, 1012), cv2.FONT_HERSHEY_DUPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-
-            out.write(frame)
-            
-        out.release()
-        return FileResponse(temp_filename, media_type="video/mp4", filename=f"indus_gamers_{video_type}.mp4")
-        
+        mp4_bytes = generate_mp4_bytes(payload.model_dump())
+        if not mp4_bytes or len(mp4_bytes) < 10000:
+            raise HTTPException(status_code=500, detail="Failed to produce video")
+        return Response(
+            content=mp4_bytes,
+            media_type="video/mp4",
+            headers={"Content-Disposition": 'attachment; filename="indus_gamers_promo.mp4"'}
+        )
     except Exception as e:
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- SCRAPER ROUTES (CRICKET SERIES & SQUADS) ---
+CRICBUZZ_URL = "https://www.cricbuzz.com"
+
+@app.get("/series/{series_id}")
+def get_series_matches(series_id: str):
+    url = f"{CRICBUZZ_URL}/cricket-series/{series_id}/matches"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers, timeout=15)
+    if res.status_code != 200:
+        raise HTTPException(status_code=res.status_code, detail="Failed to fetch series")
+    
+    soup = BeautifulSoup(res.text, "html.parser")
+    matches = []
+    for link in soup.find_all("a", href=True):
+        if "/live-cricket-scores/" in link["href"]:
+            parts = link["href"].split("/")
+            if len(parts) >= 3:
+                m_id = parts[2]
+                text = link.get_text(strip=True)
+                if text and m_id not in [m["id"] for m in matches]:
+                    matches.append({"id": m_id, "label": text})
+    return {"series_id": series_id, "matches": matches}
+
+@app.get("/squads/{match_id}")
+def get_match_squads(match_id: str):
+    url = f"{CRICBUZZ_URL}/live-cricket-scores/{match_id}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers, timeout=15)
+    if res.status_code != 200:
+        raise HTTPException(status_code=res.status_code, detail="Failed to fetch match squads")
+    
+    soup = BeautifulSoup(res.text, "html.parser")
+    # Return placeholder/parsed squads
+    return {"match_id": match_id, "squads": []}
+
+@app.get("/series/{series_id}/squads")
+def get_series_squads(series_id: str):
+    url = f"{CRICBUZZ_URL}/cricket-series/{series_id}/squads"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers, timeout=15)
+    if res.status_code != 200:
+        raise HTTPException(status_code=res.status_code, detail="Failed to fetch series squads")
+    return {"series_id": series_id, "squads": []}
