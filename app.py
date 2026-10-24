@@ -1,11 +1,8 @@
 import os
-import cv2
-import numpy as np
 import tempfile
-import requests
-from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Body
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
+from moviepy.editor import ColorClip, TextClip, CompositeVideoClip
 
 import requests
 from bs4 import BeautifulSoup
@@ -818,136 +815,116 @@ def health_check():
 @app.post("/generate-video")
 def generate_video(data: dict = Body(...)):
     """
-    Generates a 5-second dynamic MP4 video for social media using stable 'mp4v' codec:
-    - type: "match_reminder" (dynamic clash, countdown bar & pulse effect)
-    - type: "match_podium" (animated rising podium bars)
+    Dynamically generates 5-second professional sports videos on Render.
+    Supports two types:
+    1. type: "match_reminder" -> Team clash, submission deadline, countdown.
+    2. type: "match_podium"   -> Winners podium, leaderboards, medals.
     """
-    video_type = data.get("type", "match_reminder")
-    title = data.get("title", "INDUS GAMERS MATCH")
-    subtitle = data.get("subtitle", "Play Now & Win!")
-    winners = data.get("winners", [
-        {"rank": 1, "name": "gordanion", "points": "450 pts"},
-        {"rank": 2, "name": "hadersheryar", "points": "380 pts"},
-        {"rank": 3, "name": "imranmalik", "points": "310 pts"}
-    ])
-    
-    width, height = 720, 1280  # 9:16 Vertical format for Facebook Reels/Stories (Even dimensions)
-    fps = 30
-    duration_seconds = 5
-    total_frames = fps * duration_seconds
-    
-    # Create a temporary file to store the generated video
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-    temp_filename = temp_file.name
-    temp_file.close()
-    
-    # Use 'mp4v' for stable headless Linux compatibility on Render (prevents 0-byte files)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(temp_filename, fourcc, fps, (width, height))
-    
-    if not out.isOpened():
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
-        raise HTTPException(status_code=500, detail="OpenCV VideoWriter failed to open on headless container.")
-    
     try:
-        for frame_idx in range(total_frames):
-            frame = np.zeros((height, width, 3), dtype=np.uint8)
-            frame[:] = (20, 24, 33) # RGB: Dark Navy
-            
-            if video_type == "match_reminder":
-                cv2.putText(frame, "INDUS GAMERS", (160, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 150), 3, cv2.LINE_AA)
-                cv2.putText(frame, title, (80, 380), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (255, 255, 255), 3, cv2.LINE_AA)
-                cv2.putText(frame, subtitle, (120, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (200, 200, 200), 2, cv2.LINE_AA)
-                
-                pulse = int(abs(np.sin(frame_idx * 0.15) * 80))
-                cv2.circle(frame, (width // 2, 780), 110 + (pulse // 4), (0, 120, 255), 4, cv2.LINE_AA)
-                cv2.putText(frame, "VS", (width // 2 - 35, 795), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
-                
-                progress_width = int((frame_idx / total_frames) * 600)
-                cv2.rectangle(frame, (60, 1150), (60 + progress_width, 1170), (0, 255, 150), -1)
-                cv2.putText(frame, "MATCH STARTING SOON", (180, 1125), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-                
-            elif video_type == "match_podium":
-                cv2.putText(frame, "INDUS GAMERS", (200, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 150), 2, cv2.LINE_AA)
-                cv2.putText(frame, "TOP FANTASY LEADERS", (90, 160), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 215, 0), 3, cv2.LINE_AA)
-                cv2.putText(frame, title, (110, 230), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
-                
-                w1 = next((w for w in winners if w.get("rank") == 1), {"name": "Winner 1", "points": "0 pts"})
-                w2 = next((w for w in winners if w.get("rank") == 2), {"name": "Winner 2", "points": "0 pts"})
-                w3 = next((w for w in winners if w.get("rank") == 3), {"name": "Winner 3", "points": "0 pts"})
-                
-                anim_progress = min(1.0, frame_idx / 35.0)
-                ground_y = 1100
-                
-                target_t1, target_t2, target_t3 = 620, 750, 830
-                cur_t1 = int(ground_y - (ground_y - target_t1) * anim_progress)
-                cur_t2 = int(ground_y - (ground_y - target_t2) * anim_progress)
-                cur_t3 = int(ground_y - (ground_y - target_t3) * anim_progress)
-                
-                # 2nd Place
-                cv2.rectangle(frame, (80, cur_t2), (240, ground_y), (192, 192, 192), -1)
-                if anim_progress > 0.6:
-                    cv2.putText(frame, "2nd", (135, cur_t2 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-                    cv2.putText(frame, str(w2.get("name"))[:15], (88, cur_t2 + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
-                    cv2.putText(frame, str(w2.get("points")), (100, cur_t2 + 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
-
-                # 1st Place
-                cv2.rectangle(frame, (280, cur_t1), (440, ground_y), (255, 215, 0), -1)
-                if anim_progress > 0.6:
-                    cv2.putText(frame, "CHAMPION", (292, cur_t1 - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 215, 0), 2, cv2.LINE_AA)
-                    cv2.putText(frame, str(w1.get("name"))[:15], (288, cur_t1 + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
-                    cv2.putText(frame, str(w1.get("points")), (310, cur_t1 + 90), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 24, 33), 2, cv2.LINE_AA)
-
-                # 3rd Place
-                cv2.rectangle(frame, (480, cur_t3), (640, ground_y), (205, 127, 50), -1)
-                if anim_progress > 0.6:
-                    cv2.putText(frame, "3rd", (535, cur_t3 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
-                    cv2.putText(frame, str(w3.get("name"))[:15], (488, cur_t3 + 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
-                    cv2.putText(frame, str(w3.get("points")), (505, cur_t3 + 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 24, 33), 2, cv2.LINE_AA)
-            
-            out.write(frame)
-            
-        out.release()
-        return FileResponse(temp_filename, media_type="video/mp4", filename="indus_gamers_promo.mp4")
+        video_type = data.get("type", "match_reminder")
         
+        # 1. Professional Dark Sports Background (Generated via code)
+        background_clip = ColorClip(size=(720, 1280), color=(15, 23, 42), duration=5) # Deep navy slate
+        layers = [background_clip]
+
+        # Top Permanent Branding Header
+        brand_clip = TextClip(
+            "INDUS GAMERS",
+            fontsize=40,
+            color="#FACC15", # Gold/Yellow
+            font="Arial",
+            method="caption"
+        ).set_position(("center", 80)).set_duration(5)
+        layers.append(brand_clip)
+
+        if video_type == "match_reminder":
+            # --- FORMAT 1: MATCH REMINDER / TEAM SUBMISSION CLOSURE ---
+            team1 = data.get("team1_code", "PAK").upper()
+            team2 = data.get("team2_code", "SL").upper()
+            title_text = data.get("title", f"{team1} vs {team2}")
+            subtitle_text = data.get("subtitle", "Lineups Lock in 2 Hours!")
+            cta_text = data.get("cta_text", "Build Your Fantasy XI Now")
+
+            # Team 1 Badge
+            t1_badge = TextClip(
+                team1, fontsize=48, color="white", bg_color="#1D4ED8", font="Arial", size=(200, 180), method="caption"
+            ).set_position((110, 360)).set_duration(5)
+            layers.append(t1_badge)
+
+            # VS Indicator
+            vs_clip = TextClip(
+                "VS", fontsize=32, color="#94A3B8", font="Arial", method="caption"
+            ).set_position(("center", 430)).set_duration(5)
+            layers.append(vs_clip)
+
+            # Team 2 Badge
+            t2_badge = TextClip(
+                team2, fontsize=48, color="white", bg_color="#DC2626", font="Arial", size=(200, 180), method="caption"
+            ).set_position((410, 360)).set_duration(5)
+            layers.append(t2_badge)
+
+            # Match Title
+            title_clip = TextClip(
+                title_text.upper(), fontsize=36, color="white", font="Arial", size=(640, None), method="caption"
+            ).set_position(("center", 640)).set_duration(5)
+            layers.append(title_clip)
+
+            # Subtitle / Deadline Warning
+            sub_clip = TextClip(
+                subtitle_text, fontsize=28, color="#34D399", font="Arial", size=(640, None), method="caption"
+            ).set_position(("center", 780)).set_duration(5)
+            layers.append(sub_clip)
+
+            # Action Button
+            cta_clip = TextClip(
+                cta_text, fontsize=30, color="white", bg_color="#059669", size=(580, 75), method="caption"
+            ).set_position(("center", 940)).set_duration(5)
+            layers.append(cta_clip)
+
+        elif video_type == "match_podium":
+            # --- FORMAT 2: PODIUM STANDINGS & WINNERS ---
+            event_title = data.get("title", "TRI-SERIES FINAL - WINNERS")
+            winner_name = data.get("winner_name", "User_Ali92")
+            winner_prize = data.get("winner_prize", "$500 USDT / Prize Pool")
+
+            # Podium Header
+            header_clip = TextClip(
+                event_title.upper(), fontsize=34, color="#38BDF8", font="Arial", size=(640, None), method="caption"
+            ).set_position(("center", 220)).set_duration(5)
+            layers.append(header_clip)
+
+            # 3D Podium Block Representation (Gold 1st place center)
+            podium_gold = TextClip(
+                f"1st PLACE\n\n{winner_name}\n{winner_prize}",
+                fontsize=28, color="black", bg_color="#FACC15", font="Arial", size=(400, 350), method="caption"
+            ).set_position(("center", 380)).set_duration(5)
+            layers.append(podium_gold)
+
+            # Congratulatory Footer
+            congrats_clip = TextClip(
+                "Congratulations to our Fantasy Champion!", fontsize=26, color="white", font="Arial", size=(640, None), method="caption"
+            ).set_position(("center", 820)).set_duration(5)
+            layers.append(congrats_clip)
+
+            cta_clip = TextClip(
+                "Check Full Leaderboard on Indus Gamers", fontsize=28, color="white", bg_color="#7C3AED", size=(580, 75), method="caption"
+            ).set_position(("center", 940)).set_duration(5)
+            layers.append(cta_clip)
+
+        # Render Final Composite Video
+        final_video = CompositeVideoClip(layers, size=(720, 1280))
+
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        temp_output_path = temp_file.name
+        temp_file.close()
+
+        final_video.write_videofile(
+            temp_output_path, fps=24, codec="libx264", audio=False, preset="ultrafast"
+        )
+
+        return FileResponse(
+            temp_output_path, media_type="video/mp4", filename=f"indus_gamers_{video_type}.mp4"
+        )
+
     except Exception as e:
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ==================== 2. CRICKET SCRAPER & SQUAD ENDPOINTS ====================
-
-@app.get("/series/{series_id}")
-def get_series_info(series_id: str):
-    """Fetches series schedule and fixture details."""
-    try:
-        # Placeholder / Integration for your BeautifulSoup series parser
-        return {"series_id": series_id, "status": "active", "message": "Series fixture data retrieved successfully."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/series/{series_id}/squads")
-def get_series_squads(series_id: str):
-    """Fetches series-level team squads."""
-    try:
-        return {"series_id": series_id, "squads": []}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/squads/{match_id}")
-def get_match_squads(match_id: str):
-    """Fetches playing XIs and squads for a specific match."""
-    try:
-        return {"match_id": match_id, "teams": {}}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/full-scorecard/{match_id}")
-def get_full_scorecard(match_id: str):
-    """Scrapes and returns full match scorecard statistics."""
-    try:
-        return {"match_id": match_id, "scorecard": {}}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)}")
