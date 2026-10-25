@@ -183,13 +183,18 @@ def draw_podium_frame(req: VideoRequest, frame_idx: int, total_frames: int) -> I
 
 # --- Video Rendering with FFmpeg ---
 
+import tempfile
+
 @app.post("/generate-video")
 def generate_video(req: VideoRequest):
     fps = 30
     duration = 5
     total_frames = fps * duration
 
-    # Launch FFmpeg process piping raw images into H.264 MP4
+    # Use a temporary file so FFmpeg can apply +faststart cleanly
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+        out_path = tf.name
+
     cmd = [
         "ffmpeg",
         "-y",
@@ -201,8 +206,7 @@ def generate_video(req: VideoRequest):
         "-pix_fmt", "yuv420p",
         "-preset", "fast",
         "-movflags", "+faststart",
-        "-f", "mp4",
-        "pipe:1",
+        out_path,
     ]
 
     try:
@@ -225,9 +229,25 @@ def generate_video(req: VideoRequest):
         stdout_data, stderr_data = proc.communicate(timeout=60)
     except Exception as e:
         proc.kill()
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Encoding error: {e}")
 
     if proc.returncode != 0:
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"FFmpeg failed: {stderr_data.decode('utf-8', errors='ignore')[-300:]}")
 
-    return Response(content=stdout_data, media_type="video/mp4")
+    with open(out_path, "rb") as f:
+        video_bytes = f.read()
+
+    try:
+        os.remove(out_path)
+    except Exception:
+        pass
+
+    return Response(content=video_bytes, media_type="video/mp4")
