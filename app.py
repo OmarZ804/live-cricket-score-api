@@ -186,68 +186,98 @@ def draw_podium_frame(req: VideoRequest, frame_idx: int, total_frames: int) -> I
 import tempfile
 
 @app.post("/generate-video")
-def generate_video(req: VideoRequest):
-    fps = 30
-    duration = 5
-    total_frames = fps * duration
-
-    # Use a temporary file so FFmpeg can apply +faststart cleanly
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
-        out_path = tf.name
-
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-f", "image2pipe",
-        "-vcodec", "png",
-        "-r", str(fps),
-        "-i", "-",
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-preset", "fast",
-        "-movflags", "+faststart",
-        out_path,
-    ]
-
+async def generate_video(req: VideoRequest):
+    out_path = None
+    proc = None
     try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start ffmpeg: {e}")
+        total_frames = 150  # 5 seconds @ 30fps
 
-    try:
-        for i in range(total_frames):
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+            out_path = tf.name
+
+        # Synthesize sound track based on video type
+        if req.type == "match_reminder":
+            # Pulsing bass thump + high-pitch alert countdown tone
+            audio_filter = (
+                "sine=f=110:d=5[bass];"
+                "sine=f=880:d=5[beep];"
+                "[bass]tremolo=f=4:d=0.8,volume=1.2[b1];"
+                "[beep]tremolo=f=2:d=0.9,volume=0.25[b2];"
+                "[b1][b2]amix=inputs=2:duration=first,afade=t=out:st=4.3:d=0.7[aout]"
+            )
+        else:
+            # Match Podium: Harmonious celebratory rising chord + cheering wash
+            audio_filter = (
+                "sine=f=261.63:d=5[c];"
+                "sine=f=329.63:d=5[e];"
+                "sine=f=392.00:d=5[g];"
+                "sine=f=523.25:d=5[c2];"
+                "anoisesrc=d=5:c=white:r=44100[crowd];"
+                "[crowd]lowpass=f=1200,volume=0.3,afade=t=in:st=0:d=1[cheer];"
+                "[c][e][g][c2]amix=inputs=4:duration=first,volume=0.8[chord];"
+                "[chord][cheer]amix=inputs=2:duration=first,afade=t=out:st=4.2:d=0.8[aout]"
+            )
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "image2pipe",
+            "-vcodec", "png",
+            "-r", "30",
+            "-i", "-",
+            "-f", "lavfi",
+            "-i", audio_filter.split("[aout]")[0].split(";")[-1] if False else "anullsrc=channel_layout=stereo:sample_rate=44100:d=5",
+            "-filter_complex", audio_filter,
+            "-map", "0:v",
+            "-map", "[aout]",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-ar", "44100",
+            "-preset", "fast",
+            "-movflags", "+faststart",
+            "-t", "5",
+            out_path,
+        ]
+
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        for frame_idx in range(total_frames):
             if req.type == "match_reminder":
-                frame = draw_reminder_frame(req, i, total_frames)
+                img = draw_reminder_frame(frame_idx, total_frames, req)
             else:
-                frame = draw_podium_frame(req, i, total_frames)
+                img = draw_podium_frame(frame_idx, total_frames, req)
 
-            buf = BytesIO()
-            frame.save(buf, format="PNG")
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
             proc.stdin.write(buf.getvalue())
-            buf.close()
 
-        stdout_data, stderr_data = proc.communicate(timeout=60)
+        proc.stdin.close()
+        proc.wait(timeout=120)
+
+        if proc.returncode != 0:
+            err = proc.stderr.read().decode("utf-8", errors="ignore")
+            raise HTTPException(status_code=500, detail=f"FFmpeg failed: {err[-500:]}")
+
+        with open(out_path, "rb") as f:
+            video_bytes = f.read()
+
+        return Response(content=video_bytes, media_type="video/mp4")
+
+    except subprocess.TimeoutExpired:
+        if proc:
+            proc.kill()
+        raise HTTPException(status_code=504, detail="FFmpeg rendering timed out")
     except Exception as e:
-        proc.kill()
-        try:
-            os.remove(out_path)
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=f"Encoding error: {e}")
-
-    if proc.returncode != 0:
-        try:
-            os.remove(out_path)
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=f"FFmpeg failed: {stderr_data.decode('utf-8', errors='ignore')[-300:]}")
-
-    with open(out_path, "rb") as f:
-        video_bytes = f.read()
-
-    try:
-        os.remove(out_path)
-    except Exception:
-        pass
-
-    return Response(content=video_bytes, media_type="video/mp4")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if out_path and os.path.exists(out_path):
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
