@@ -195,7 +195,7 @@ async def generate_video(req: VideoRequest):
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
             out_path = tf.name
 
-        # Synthesize sound track dynamically (no external audio files required)
+        # Synthesize audio dynamically
         if req.type == "match_reminder":
             # Pulsing bass thump + countdown alert tone
             audio_filter = (
@@ -206,7 +206,7 @@ async def generate_video(req: VideoRequest):
                 "[b1][b2]amix=inputs=2:duration=first,afade=t=out:st=4.3:d=0.7[aout]"
             )
         else:
-            # Match Podium: Celebratory victory chord + crowd cheer wash
+            # Match Podium: Victory chord + cheer wash
             audio_filter = (
                 "sine=f=261.63:d=5[c];"
                 "sine=f=329.63:d=5[e];"
@@ -247,9 +247,9 @@ async def generate_video(req: VideoRequest):
 
         for frame_idx in range(total_frames):
             if req.type == "match_reminder":
-                img = draw_reminder_frame(frame_idx, req, total_frames)
+                img = draw_reminder_frame(req, frame_idx, total_frames)
             else:
-                img = draw_podium_frame(frame_idx, req, total_frames)
+                img = draw_podium_frame(req, frame_idx, total_frames)
 
             buf = io.BytesIO()
             img.save(buf, format="PNG")
