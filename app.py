@@ -187,6 +187,7 @@ import tempfile
 
 @app.post("/generate-video")
 async def generate_video(req: VideoRequest):
+    import io, tempfile, os, subprocess
     out_path = None
     proc = None
     try:
