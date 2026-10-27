@@ -47,6 +47,16 @@ class VideoRequest(BaseModel):
 def health():
     return {"status": "ok", "service": "indus-gamers-video", "engine": "ffmpeg-h264"}
 
+def get_team_abbr(team_name: str) -> str:
+    """Returns 2-letter abbreviation for 2-word teams (S.L, S.A, N.Z) or 3 letters for 1-word teams (PAK, IND, AUS)."""
+    if not team_name:
+        return "T1"
+    words = team_name.strip().split()
+    if len(words) >= 2:
+        return f"{words[0][0].upper()}.{words[1][0].upper()}"
+    return team_name[:3].upper()
+
+
 # --- Draw Frame Functions (1080x1080) ---
 
 def draw_reminder_frame(req: VideoRequest, frame_idx: int, total_frames: int) -> Image.Image:
@@ -88,8 +98,12 @@ def draw_reminder_frame(req: VideoRequest, frame_idx: int, total_frames: int) ->
     draw.text((185, 203), "SERIES", font=get_font(18, bold=True), fill=(15, 23, 42), anchor="mm")
     draw.text((595, 203), series_txt, font=get_font(26, bold=True), fill=(255, 255, 255), anchor="mm")
 
+        # --- VENUE CARD ---
     venue_txt = f"VENUE: {req.venue[:50]}" if req.venue else "VENUE: International Cricket Stadium"
-    draw.text((W // 2, 248), venue_txt, font=get_font(21, bold=True), fill=(203, 213, 225), anchor="mm")
+    draw.rounded_rectangle([140, 175, 940, 248], radius=16, fill=(15, 23, 42), outline=(51, 65, 85), width=2)
+    draw.text((W // 2, 211), venue_txt, font=get_font(22, bold=True), fill=(203, 213, 225), anchor="mm")
+
+
 
     # --- TEAM CLASH CARDS ---
     team_a = req.team_a or "Team A"
@@ -104,7 +118,7 @@ def draw_reminder_frame(req: VideoRequest, frame_idx: int, total_frames: int) ->
     draw.rounded_rectangle([90 + offset_a, 320, 470 + offset_a, 630], radius=24, fill=(15, 23, 42), outline=(16, 185, 129), width=4)
     # Emblem Circle
     draw.ellipse([220 + offset_a, 355, 340 + offset_a, 475], fill=(6, 78, 59), outline=(52, 211, 153), width=3)
-    draw.text((280 + offset_a, 415), team_a[:3].upper(), font=get_font(38, bold=True), fill=(255, 255, 255), anchor="mm")
+    draw.text((280 + offset_a, 415), get_team_abbr(team_a), font=get_font(38, bold=True), fill=(255, 255, 255), anchor="mm")
     # Name Plate
     draw.rounded_rectangle([110 + offset_a, 498, 450 + offset_a, 562], radius=12, fill=(24, 38, 66), outline=(52, 211, 153), width=1)
     draw.text((280 + offset_a, 530), team_a, font=get_font(28, bold=True), fill=(255, 255, 255), anchor="mm")
@@ -121,7 +135,7 @@ def draw_reminder_frame(req: VideoRequest, frame_idx: int, total_frames: int) ->
     draw.rounded_rectangle([610 + offset_b, 320, 990 + offset_b, 630], radius=24, fill=(15, 23, 42), outline=(245, 158, 11), width=4)
     # Emblem Circle
     draw.ellipse([740 + offset_b, 355, 860 + offset_b, 475], fill=(120, 53, 15), outline=(251, 191, 36), width=3)
-    draw.text((800 + offset_b, 415), team_b[:3].upper(), font=get_font(38, bold=True), fill=(255, 255, 255), anchor="mm")
+    draw.text((800 + offset_b, 415), get_team_abbr(team_b), font=get_font(38, bold=True), fill=(255, 255, 255), anchor="mm")
     # Name Plate
     draw.rounded_rectangle([630 + offset_b, 498, 970 + offset_b, 562], radius=12, fill=(24, 38, 66), outline=(245, 158, 11), width=1)
     draw.text((800 + offset_b, 530), team_b, font=get_font(28, bold=True), fill=(255, 255, 255), anchor="mm")
@@ -169,13 +183,13 @@ def draw_podium_frame(req: VideoRequest, frame_idx: int, total_frames: int) -> I
     draw.text((W // 2, 70), "INDUS GAMERS", font=get_font(36, bold=True), fill=(251, 191, 36), anchor="mm")
     draw.text((W // 2, 130), "MATCH COMPLETED • TOP FANTASY MANAGERS", font=get_font(23, bold=True), fill=(241, 245, 249), anchor="mm")
 
-    # Series & Result Card
-    draw.rounded_rectangle([100, 168, 980, 272], radius=16, fill=(15, 23, 42), outline=(51, 65, 85), width=2)
-    if req.series:
-        s_txt = req.series if len(req.series) <= 44 else req.series[:42] + "..."
-        draw.text((W // 2, 198), s_txt.upper(), font=get_font(25, bold=True), fill=(255, 255, 255), anchor="mm")
-    if req.result:
-        draw.text((W // 2, 238), req.result[:55], font=get_font(23, bold=True), fill=(52, 211, 153), anchor="mm")
+    # --- RESULT CARD ---
+    res_txt = (req.result or "Match Completed").upper()
+    if len(res_txt) > 55:
+        res_txt = res_txt[:52] + "..."
+    draw.rounded_rectangle([140, 175, 940, 248], radius=16, fill=(15, 23, 42), outline=(16, 185, 129), width=2)
+    draw.text((W // 2, 211), res_txt, font=get_font(27, bold=True), fill=(52, 211, 153), anchor="mm")
+
 
     # Rising Columns Animation
     rise_progress = min(1.0, frame_idx / 45.0) if total_frames > 0 else 1.0
