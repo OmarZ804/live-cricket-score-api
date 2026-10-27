@@ -51,95 +51,134 @@ def health():
 
 def draw_reminder_frame(req: VideoRequest, frame_idx: int, total_frames: int) -> Image.Image:
     W, H = 1080, 1080
-    t = frame_idx / total_frames  # 0.0 to 1.0
+    t = frame_idx / total_frames
 
-    # Background gradient (deep navy to emerald)
-    img = Image.new("RGB", (W, H), (10, 15, 30))
+    # High-contrast stadium dark gradient background
+    img = Image.new("RGB", (W, H), (8, 14, 28))
     draw = ImageDraw.Draw(img)
 
-    # Ambient radial circles
-    glow_alpha = int(40 + 20 * math.sin(t * math.pi * 4))
-    draw.ellipse([-200, -200, 600, 600], fill=(16, 185, 129, glow_alpha))
-    draw.ellipse([600, 600, 1400, 1400], fill=(6, 78, 59, glow_alpha))
+    for y in range(0, H, 15):
+        factor = y / H
+        r = int(8 + factor * 10)
+        g = int(14 + factor * 16)
+        b = int(28 + factor * 30)
+        draw.rectangle([0, y, W, y + 15], fill=(r, g, b))
 
-    # Top Brand Header
-    draw.text((W // 2, 80), "INDUS GAMERS", font=get_font(34, bold=True), fill=(16, 185, 129), anchor="mm")
-    draw.text((W // 2, 130), "FANTASY CRICKET • MATCH REMINDER", font=get_font(24), fill=(156, 163, 175), anchor="mm")
+    # Top & bottom glowing sports borders
+    draw.rectangle([0, 0, W, 8], fill=(16, 185, 129))  # Emerald top border
+    draw.rectangle([0, H - 8, W, H], fill=(245, 158, 11))  # Gold bottom border
 
-    # Series & Venue
+    # Ambient stadium light beam accents
+    draw.polygon([(0, 0), (320, 0), (160, 450), (0, 300)], fill=(15, 32, 58))
+    draw.polygon([(W, 0), (W - 320, 0), (W - 160, 450), (W, 300)], fill=(15, 32, 58))
+
+    # --- TOP BRAND HEADER ---
+    draw.rounded_rectangle([320, 38, 760, 102], radius=32, fill=(15, 23, 42), outline=(52, 211, 153), width=3)
+    draw.text((W // 2, 70), "INDUS GAMERS", font=get_font(36, bold=True), fill=(52, 211, 153), anchor="mm")
+    draw.text((W // 2, 130), "FANTASY CRICKET • MATCH REMINDER", font=get_font(23, bold=True), fill=(241, 245, 249), anchor="mm")
+
+    # --- SERIES & VENUE CARD ---
     series_txt = (req.series or "Upcoming Match").upper()
     if len(series_txt) > 42:
         series_txt = series_txt[:40] + "..."
-    draw.text((W // 2, 230), series_txt, font=get_font(28, bold=True), fill=(255, 255, 255), anchor="mm")
 
-    if req.venue:
-        draw.text((W // 2, 275), req.venue[:50], font=get_font(22), fill=(156, 163, 175), anchor="mm")
+    draw.rounded_rectangle([100, 168, 980, 275], radius=18, fill=(15, 23, 42), outline=(51, 65, 85), width=2)
+    # Series badge
+    draw.rounded_rectangle([125, 185, 245, 222], radius=8, fill=(245, 158, 11))
+    draw.text((185, 203), "SERIES", font=get_font(18, bold=True), fill=(15, 23, 42), anchor="mm")
+    draw.text((595, 203), series_txt, font=get_font(26, bold=True), fill=(255, 255, 255), anchor="mm")
 
-    # Team Clash Boxes
+    venue_txt = f"VENUE: {req.venue[:50]}" if req.venue else "VENUE: International Cricket Stadium"
+    draw.text((W // 2, 248), venue_txt, font=get_font(21, bold=True), fill=(203, 213, 225), anchor="mm")
+
+    # --- TEAM CLASH CARDS ---
     team_a = req.team_a or "Team A"
     team_b = req.team_b or "Team B"
 
-    # Slide-in animation for team cards (ease-out during first second)
-    slide = min(1.0, frame_idx / 25.0)
+    slide = min(1.0, frame_idx / 25.0) if total_frames > 0 else 1.0
     ease = 1.0 - math.pow(1.0 - slide, 3)
-
     offset_a = int((1.0 - ease) * -400)
     offset_b = int((1.0 - ease) * 400)
 
-    # Team A Card
-    draw.rounded_rectangle([100 + offset_a, 360, 470 + offset_a, 620], radius=24, fill=(17, 24, 39), outline=(55, 65, 81), width=3)
-    draw.ellipse([235 + offset_a, 400, 335 + offset_a, 500], fill=(30, 41, 59))
-    draw.text((285 + offset_a, 450), team_a[:3].upper(), font=get_font(36, bold=True), fill=(16, 185, 129), anchor="mm")
-    draw.text((285 + offset_a, 550), team_a, font=get_font(30, bold=True), fill=(255, 255, 255), anchor="mm")
+    # Team A Card (Emerald Accent)
+    draw.rounded_rectangle([90 + offset_a, 320, 470 + offset_a, 630], radius=24, fill=(15, 23, 42), outline=(16, 185, 129), width=4)
+    # Emblem Circle
+    draw.ellipse([220 + offset_a, 355, 340 + offset_a, 475], fill=(6, 78, 59), outline=(52, 211, 153), width=3)
+    draw.text((280 + offset_a, 415), team_a[:3].upper(), font=get_font(38, bold=True), fill=(255, 255, 255), anchor="mm")
+    # Name Plate
+    draw.rounded_rectangle([110 + offset_a, 498, 450 + offset_a, 562], radius=12, fill=(24, 38, 66), outline=(52, 211, 153), width=1)
+    draw.text((280 + offset_a, 530), team_a, font=get_font(28, bold=True), fill=(255, 255, 255), anchor="mm")
+    draw.text((280 + offset_a, 595), "TEAM 1", font=get_font(20, bold=True), fill=(52, 211, 153), anchor="mm")
 
-    # VS badge with pulsating ring
-    pulse = 1.0 + 0.12 * math.sin(t * math.pi * 8)
+    # VS Badge (Pulsing Amber/Red)
+    pulse = 1.0 + 0.10 * math.sin(t * math.pi * 8)
     radius_vs = int(48 * pulse)
-    draw.ellipse([540 - radius_vs, 490 - radius_vs, 540 + radius_vs, 490 + radius_vs], fill=(245, 158, 11))
-    draw.text((540, 490), "VS", font=get_font(32, bold=True), fill=(0, 0, 0), anchor="mm")
+    draw.ellipse([540 - radius_vs - 6, 475 - radius_vs - 6, 540 + radius_vs + 6, 475 + radius_vs + 6], fill=(220, 38, 38))
+    draw.ellipse([540 - radius_vs, 475 - radius_vs, 540 + radius_vs, 475 + radius_vs], fill=(245, 158, 11), outline=(255, 255, 255), width=3)
+    draw.text((540, 475), "VS", font=get_font(34, bold=True), fill=(15, 23, 42), anchor="mm")
 
-    # Team B Card
-    draw.rounded_rectangle([610 + offset_b, 360, 980 + offset_b, 620], radius=24, fill=(17, 24, 39), outline=(55, 65, 81), width=3)
-    draw.ellipse([745 + offset_b, 400, 845 + offset_b, 500], fill=(30, 41, 59))
-    draw.text((795 + offset_b, 450), team_b[:3].upper(), font=get_font(36, bold=True), fill=(245, 158, 11), anchor="mm")
-    draw.text((795 + offset_b, 550), team_b, font=get_font(30, bold=True), fill=(255, 255, 255), anchor="mm")
+    # Team B Card (Gold Accent)
+    draw.rounded_rectangle([610 + offset_b, 320, 990 + offset_b, 630], radius=24, fill=(15, 23, 42), outline=(245, 158, 11), width=4)
+    # Emblem Circle
+    draw.ellipse([740 + offset_b, 355, 860 + offset_b, 475], fill=(120, 53, 15), outline=(251, 191, 36), width=3)
+    draw.text((800 + offset_b, 415), team_b[:3].upper(), font=get_font(38, bold=True), fill=(255, 255, 255), anchor="mm")
+    # Name Plate
+    draw.rounded_rectangle([630 + offset_b, 498, 970 + offset_b, 562], radius=12, fill=(24, 38, 66), outline=(245, 158, 11), width=1)
+    draw.text((800 + offset_b, 530), team_b, font=get_font(28, bold=True), fill=(255, 255, 255), anchor="mm")
+    draw.text((800 + offset_b, 595), "TEAM 2", font=get_font(20, bold=True), fill=(251, 191, 36), anchor="mm")
 
-    # Deadline Banner
-    deadline_txt = f"DEADLINE: {req.deadline or 'Match Start'}"
-    draw.rounded_rectangle([140, 720, 940, 840], radius=20, fill=(220, 38, 38))
-    draw.text((W // 2, 780), deadline_txt, font=get_font(36, bold=True), fill=(255, 255, 255), anchor="mm")
+    # --- DEADLINE BANNER ---
+    deadline_val = req.deadline or "Match Start"
+    draw.rounded_rectangle([90, 675, 990, 785], radius=22, fill=(185, 28, 28), outline=(248, 113, 113), width=3)
+    draw.rounded_rectangle([115, 698, 265, 762], radius=12, fill=(127, 29, 29))
+    draw.text((190, 730), "LOCKS AT", font=get_font(20, bold=True), fill=(254, 202, 202), anchor="mm")
+    draw.text((620, 730), f"DEADLINE: {deadline_val}", font=get_font(36, bold=True), fill=(255, 255, 255), anchor="mm")
 
-    # CTA Bottom
-    draw.text((W // 2, 940), "Select your Playing XI now at indusgamers.online", font=get_font(28, bold=True), fill=(16, 185, 129), anchor="mm")
-    draw.text((W // 2, 985), "Free Private Leagues • Live Leaderboards", font=get_font(22), fill=(156, 163, 175), anchor="mm")
+    # --- CTA FOOTER ---
+    draw.rounded_rectangle([90, 835, 990, 950], radius=24, fill=(15, 23, 42), outline=(16, 185, 129), width=2)
+    draw.text((W // 2, 873), "Create Your Playing XI & Win!", font=get_font(30, bold=True), fill=(52, 211, 153), anchor="mm")
+    draw.text((W // 2, 915), "indusgamers.online • Free Leagues & Live Rankings", font=get_font(23, bold=True), fill=(241, 245, 249), anchor="mm")
 
     return img
-
+    
 
 def draw_podium_frame(req: VideoRequest, frame_idx: int, total_frames: int) -> Image.Image:
     W, H = 1080, 1080
     t = frame_idx / total_frames
 
-    img = Image.new("RGB", (W, H), (10, 15, 30))
+    # Background gradient with deep midnight sports feel
+    img = Image.new("RGB", (W, H), (8, 14, 28))
     draw = ImageDraw.Draw(img)
 
-    # Ambient golden glow
-    glow_alpha = int(45 + 25 * math.sin(t * math.pi * 3))
-    draw.ellipse([340, 200, 740, 600], fill=(245, 158, 11, glow_alpha))
+    for y in range(0, H, 15):
+        factor = y / H
+        r = int(8 + factor * 10)
+        g = int(14 + factor * 16)
+        b = int(28 + factor * 30)
+        draw.rectangle([0, y, W, y + 15], fill=(r, g, b))
 
-    # Header
-    draw.text((W // 2, 70), "INDUS GAMERS", font=get_font(34, bold=True), fill=(16, 185, 129), anchor="mm")
-    draw.text((W // 2, 120), "MATCH COMPLETED • TOP FANTASY MANAGERS", font=get_font(24), fill=(156, 163, 175), anchor="mm")
+    # Top & bottom gold/emerald borders
+    draw.rectangle([0, 0, W, 8], fill=(245, 158, 11))
+    draw.rectangle([0, H - 8, W, H], fill=(16, 185, 129))
 
-    # Series / Result
+    # Ambient golden spotlight polygon
+    draw.polygon([(W // 2 - 250, 0), (W // 2 + 250, 0), (W // 2 + 380, 500), (W // 2 - 380, 500)], fill=(26, 33, 50))
+
+    # --- TOP BRAND HEADER ---
+    draw.rounded_rectangle([320, 38, 760, 102], radius=32, fill=(15, 23, 42), outline=(245, 158, 11), width=3)
+    draw.text((W // 2, 70), "INDUS GAMERS", font=get_font(36, bold=True), fill=(251, 191, 36), anchor="mm")
+    draw.text((W // 2, 130), "MATCH COMPLETED • TOP FANTASY MANAGERS", font=get_font(23, bold=True), fill=(241, 245, 249), anchor="mm")
+
+    # Series & Result Card
+    draw.rounded_rectangle([100, 168, 980, 272], radius=16, fill=(15, 23, 42), outline=(51, 65, 85), width=2)
     if req.series:
         s_txt = req.series if len(req.series) <= 44 else req.series[:42] + "..."
-        draw.text((W // 2, 180), s_txt, font=get_font(26, bold=True), fill=(255, 255, 255), anchor="mm")
+        draw.text((W // 2, 198), s_txt.upper(), font=get_font(25, bold=True), fill=(255, 255, 255), anchor="mm")
     if req.result:
-        draw.text((W // 2, 220), req.result[:55], font=get_font(22), fill=(245, 158, 11), anchor="mm")
+        draw.text((W // 2, 238), req.result[:55], font=get_font(23, bold=True), fill=(52, 211, 153), anchor="mm")
 
-    # Rising Columns Animation (ease-out across first 1.5s)
-    rise_progress = min(1.0, frame_idx / 45.0)
+    # Rising Columns Animation
+    rise_progress = min(1.0, frame_idx / 45.0) if total_frames > 0 else 1.0
     ease = 1.0 - math.pow(1.0 - rise_progress, 3)
 
     winners = req.winners or []
@@ -147,39 +186,51 @@ def draw_podium_frame(req: VideoRequest, frame_idx: int, total_frames: int) -> I
     w2 = winners[1] if len(winners) > 1 else Winner(name="Runner Up", points=0, rank=2)
     w3 = winners[2] if len(winners) > 2 else Winner(name="3rd Place", points=0, rank=3)
 
-    # Target Heights
-    h1_target, h2_target, h3_target = 360, 260, 200
     base_y = 860
-
+    h1_target, h2_target, h3_target = 370, 270, 210
     h1 = int(h1_target * ease)
     h2 = int(h2_target * ease)
     h3 = int(h3_target * ease)
 
-    # 2nd Place (Left)
-    draw.rounded_rectangle([140, base_y - h2, 380, base_y], radius=16, fill=(100, 116, 139))
-    draw.text((260, base_y - h2 + 60), "2nd", font=get_font(44, bold=True), fill=(255, 255, 255), anchor="mm")
-    draw.text((260, base_y - h2 - 70), w2.name[:16], font=get_font(28, bold=True), fill=(255, 255, 255), anchor="mm")
-    draw.text((260, base_y - h2 - 30), f"{w2.points:.0f} pts", font=get_font(26), fill=(203, 213, 225), anchor="mm")
+    # --- 2ND PLACE (SILVER / LEFT) ---
+    badge2_y = base_y - h2
+    draw.rounded_rectangle([100, badge2_y - 110, 360, badge2_y - 15], radius=14, fill=(15, 23, 42), outline=(203, 213, 225), width=2)
+    draw.text((230, badge2_y - 82), w2.name[:16], font=get_font(24, bold=True), fill=(255, 255, 255), anchor="mm")
+    draw.text((230, badge2_y - 45), f"{w2.points:.1f} PTS", font=get_font(24, bold=True), fill=(147, 197, 253), anchor="mm")
 
-    # 1st Place (Center - Gold)
-    draw.rounded_rectangle([420, base_y - h1, 660, base_y], radius=16, fill=(245, 158, 11))
-    draw.text((540, base_y - h1 + 60), "1st", font=get_font(52, bold=True), fill=(0, 0, 0), anchor="mm")
-    # Gold Crown / Badge
-    draw.text((540, base_y - h1 - 85), "★ WINNER ★", font=get_font(22, bold=True), fill=(245, 158, 11), anchor="mm")
-    draw.text((540, base_y - h1 - 45), w1.name[:16], font=get_font(32, bold=True), fill=(255, 255, 255), anchor="mm")
-    draw.text((540, base_y - h1 - 5), f"{w1.points:.0f} pts", font=get_font(30, bold=True), fill=(245, 158, 11), anchor="mm")
+    # Pillar
+    draw.rounded_rectangle([110, base_y - h2, 350, base_y], radius=16, fill=(148, 163, 184), outline=(226, 232, 240), width=3)
+    draw.ellipse([190, base_y - h2 + 25, 270, base_y - h2 + 105], fill=(226, 232, 240))
+    draw.text((230, base_y - h2 + 65), "2nd", font=get_font(36, bold=True), fill=(15, 23, 42), anchor="mm")
 
-    # 3rd Place (Right)
-    draw.rounded_rectangle([700, base_y - h3, 940, base_y], radius=16, fill=(180, 83, 9))
-    draw.text((820, base_y - h3 + 50), "3rd", font=get_font(40, bold=True), fill=(255, 255, 255), anchor="mm")
-    draw.text((820, base_y - h3 - 70), w3.name[:16], font=get_font(28, bold=True), fill=(255, 255, 255), anchor="mm")
-    draw.text((820, base_y - h3 - 30), f"{w3.points:.0f} pts", font=get_font(26), fill=(253, 186, 116), anchor="mm")
+    # --- 1ST PLACE (GOLD / CENTER) ---
+    badge1_y = base_y - h1
+    draw.rounded_rectangle([390, badge1_y - 130, 690, badge1_y - 15], radius=16, fill=(15, 23, 42), outline=(245, 158, 11), width=3)
+    draw.text((540, badge1_y - 104), "★ CHAMPION ★", font=get_font(20, bold=True), fill=(251, 191, 36), anchor="mm")
+    draw.text((540, badge1_y - 70), w1.name[:16], font=get_font(30, bold=True), fill=(255, 255, 255), anchor="mm")
+    draw.text((540, badge1_y - 32), f"{w1.points:.1f} PTS", font=get_font(26, bold=True), fill=(253, 224, 71), anchor="mm")
 
-    # Bottom Footer
-    draw.text((W // 2, 940), "Check full leaderboard at indusgamers.online", font=get_font(26, bold=True), fill=(16, 185, 129), anchor="mm")
+    # Pillar
+    draw.rounded_rectangle([400, base_y - h1, 680, base_y], radius=18, fill=(245, 158, 11), outline=(254, 240, 138), width=4)
+    draw.ellipse([490, base_y - h1 + 30, 590, base_y - h1 + 130], fill=(254, 240, 138))
+    draw.text((540, base_y - h1 + 80), "1st", font=get_font(46, bold=True), fill=(15, 23, 42), anchor="mm")
+
+    # --- 3RD PLACE (BRONZE / RIGHT) ---
+    badge3_y = base_y - h3
+    draw.rounded_rectangle([720, badge3_y - 110, 980, badge3_y - 15], radius=14, fill=(15, 23, 42), outline=(217, 119, 6), width=2)
+    draw.text((850, badge3_y - 82), w3.name[:16], font=get_font(24, bold=True), fill=(255, 255, 255), anchor="mm")
+    draw.text((850, badge3_y - 45), f"{w3.points:.1f} PTS", font=get_font(24, bold=True), fill=(253, 186, 116), anchor="mm")
+
+    # Pillar
+    draw.rounded_rectangle([730, base_y - h3, 970, base_y], radius=16, fill=(217, 119, 6), outline=(251, 191, 36), width=3)
+    draw.ellipse([810, base_y - h3 + 20, 890, base_y - h3 + 100], fill=(254, 215, 170))
+    draw.text((850, base_y - h3 + 60), "3rd", font=get_font(36, bold=True), fill=(67, 20, 7), anchor="mm")
+
+    # --- FOOTER ---
+    draw.rounded_rectangle([90, 890, 990, 965], radius=20, fill=(15, 23, 42), outline=(16, 185, 129), width=2)
+    draw.text((W // 2, 928), "Check Full Leaderboard at indusgamers.online", font=get_font(26, bold=True), fill=(52, 211, 153), anchor="mm")
 
     return img
-
 
 # --- Video Rendering with FFmpeg ---
 
